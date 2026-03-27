@@ -22,16 +22,13 @@ spec:
           ports:
             - containerPort: 8000
           env:
-            # OTel signal routing:
-            #   Logs    → Vector  (enrichment + label injection → Loki)
-            #   Traces  → Tempo   (direct OTLP; Vector HTTP sink can't emit OTLP format)
-            #   Metrics → Prometheus OTLP receiver (Vector 0.42 drops otlp_in.metrics)
+            # All OTel signals → Vector (logs+traces+metrics).
+            # Vector 0.44 routes each signal to the appropriate backend:
+            #   Logs    → enrich (VRL) → Loki
+            #   Traces  → opentelemetry sink (otlp codec) → Tempo :4318
+            #   Metrics → opentelemetry sink (otlp codec) → Prometheus OTLP receiver
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://vector.telemetry-system.svc.cluster.local:4318"
-            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-              value: "http://tempo.observability.svc.cluster.local:4318/v1/traces"
-            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-              value: "http://prometheus.observability.svc.cluster.local:9090/api/v1/otlp/v1/metrics"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: "http/protobuf"
             - name: OTEL_SERVICE_NAME

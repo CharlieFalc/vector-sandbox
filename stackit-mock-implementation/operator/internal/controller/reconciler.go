@@ -23,7 +23,7 @@ import (
 
 const (
 	finalizerName = "telemetry.stackit.local/drain-finalizer"
-	vectorImage   = "timberio/vector:0.42.0-distroless-libc"
+	vectorImage   = "timberio/vector:0.53.0-distroless-libc"
 )
 
 // TelemetryRouterReconciler watches TelemetryRouter CRDs and manages

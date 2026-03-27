@@ -5,7 +5,7 @@ graph TD
 
     subgraph telemetry-system["Namespace: telemetry-system"]
         OP["⚙️ telemetry-operator\n(Go / controller-runtime v0.18)\nReconciles TelemetryRouter CRs"]
-        VEC["📦 vector-main-router\n(Vector 0.42.0)\nEnriches + routes log events"]
+        VEC["📦 vector-main-router\n(Vector 0.53.0)\nEnriches + routes log events\n(traces direct to Tempo)"]
         CM["📄 ConfigMap\nvector-config-main-router\n(rendered TOML)"]
         TR["📋 TelemetryRouter CR\nmain-router\n(kind: TelemetryRouter)"]
         API["🔌 operator REST API\n:8080 — CRUD for routers"]
@@ -38,14 +38,15 @@ graph TD
 
     %% Price-service OTel signal fan-out
     PS -->|"OTLP HTTP logs\n→ :4318/v1/logs"| VEC
-    PS -->|"OTLP HTTP traces\n→ :4318/v1/traces\n(direct — Vector can't\nemit OTLP format)"| TEMPO
-    PS -->|"OTLP HTTP metrics\n→ :9090/api/v1/otlp/v1/metrics\n(direct — Vector 0.42 drops\notlp_in.metrics)"| PROM
+    PS -->|"OTLP HTTP traces\n→ :4318/v1/traces\n(via Vector opentelemetry sink → Tempo)"| VEC
+    PS -->|"OTLP HTTP metrics\n→ :9090/api/v1/otlp/v1/metrics\n(direct — Vector 0.53 doesn't\nsupport metrics via opentelemetry sink)"| PROM
 
     %% Vector internals
     VEC -->|"opentelemetry source\notlp_in.logs + otlp_in.traces\n↓\nenrich transform (VRL)\n• add deployment.environment\n• add k8s.cluster\n• hoist service_name label"| VEC
 
     %% Vector sinks
     VEC -->|"loki sink\nlabels: router, service_name\nencoding: json"| LOKI
+    VEC -->|"opentelemetry sink\nencoding: otlp\n→ Tempo"| TEMPO
     VEC -->|"prometheus_remote_write sink\nvector_metrics source\n(Vector's own pipeline metrics)"| PROM
 
     %% Grafana datasources

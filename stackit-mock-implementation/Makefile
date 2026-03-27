@@ -133,6 +133,24 @@ hotfix-operator: build-operator
 	kubectl rollout restart deployment/telemetry-operator -n $(OPERATOR_NAMESPACE)
 	kubectl rollout status  deployment/telemetry-operator -n $(OPERATOR_NAMESPACE) --timeout=90s
 
+## hotfix-operator-and-validate: Rebuild operator image + restart + dump diagnostics for vector pod
+hotfix-operator-and-validate: hotfix-operator
+	@echo "▶  Wait for vector pods to settle"
+	kubectl rollout status deployment -n $(OPERATOR_NAMESPACE) -l app=vector --timeout=90s || true
+	@echo "▶  Pod summary"
+	kubectl get pods -n $(OPERATOR_NAMESPACE) -l app=vector
+	@POD=$$(kubectl get pod -n $(OPERATOR_NAMESPACE) -l app=vector -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true); \
+	if [ -n "$$POD" ]; then \
+	  echo "▶  Logs for $$POD"; \
+	  kubectl logs -n $(OPERATOR_NAMESPACE) $$POD --tail=80 || true; \
+	  echo "▶  Pod yaml for $$POD (first 120 lines)"; \
+	  kubectl get pod $$POD -n $(OPERATOR_NAMESPACE) -o yaml | sed -n '1,120p' || true; \
+	  echo "▶  Vector config from $$POD"; \
+	  kubectl exec -n $(OPERATOR_NAMESPACE) -c vector $$POD -- cat /etc/vector/vector.toml || true; \
+	else \
+	  echo "No vector pod found to inspect"; \
+	fi
+
 ## hotfix-customer: Rebuild customer-app image + rolling-restart
 hotfix-customer: build-customer
 	@echo "▶  Applying updated customer-app deployment manifest"

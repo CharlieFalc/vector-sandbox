@@ -42,4 +42,6 @@ spec:
 
     - name: tempo
       type: OTLP
-      endpoint: http://tempo.observability.svc.cluster.local:4317
+      # Port 4318 = Tempo's HTTP OTLP endpoint (used by Vector opentelemetry sink)
+      # Port 4317 = Tempo's gRPC OTLP endpoint (for direct-from-app exporters)
+      endpoint: http://tempo.observability.svc.cluster.local:4318

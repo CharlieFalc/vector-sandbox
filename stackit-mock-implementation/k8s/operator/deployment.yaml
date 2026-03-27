@@ -33,7 +33,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: VECTOR_IMAGE
-              value: "timberio/vector:0.42.0-distroless-libc"
+              value: "timberio/vector:0.53.0-distroless-libc"
           livenessProbe:
             httpGet:
               path: /healthz
