@@ -127,8 +127,6 @@ inputs = ["otlp_in.traces"]
 type = "http"
 uri  = "[[ .Endpoint ]]/v1/traces"
 
-encoding.codec = "otlp"
-
 [sinks.sink_[[ .Name | sanitize ]].buffer]
 type       = "memory"
 max_events = 50000

@@ -19,7 +19,7 @@ spec:
       containers:
         - name: operator
           image: stackit-mock/operator:local
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           ports:
             - name: api
               containerPort: 8080

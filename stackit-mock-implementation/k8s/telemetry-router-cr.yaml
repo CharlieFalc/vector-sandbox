@@ -28,9 +28,9 @@ spec:
 
   # ── Destinations ────────────────────────────────────────────────────────────
   # The operator translates each entry into a Vector sink.
-  # PROMETHEUS → prometheus_remote_write  (metrics only)
-  # LOKI       → loki                     (logs + traces as JSON)
-  # OTLP       → opentelemetry            (logs + traces as OTLP)
+  # PROMETHEUS → prometheus_remote_write  (Vector internal metrics)
+  # LOKI       → loki                     (enriched logs)
+  # Traces are exported directly app -> Tempo in customer-app deployment.
   destinations:
     - name: prometheus
       type: PROMETHEUS
@@ -40,8 +40,3 @@ spec:
       type: LOKI
       endpoint: http://loki.observability.svc.cluster.local:3100
 
-    - name: tempo
-      type: OTLP
-      # Port 4318 = Tempo's HTTP OTLP endpoint (used by Vector opentelemetry sink)
-      # Port 4317 = Tempo's gRPC OTLP endpoint (for direct-from-app exporters)
-      endpoint: http://tempo.observability.svc.cluster.local:4318

@@ -38,6 +38,8 @@
 **7. What his team actually tests for in interviews**
 > "When your team interviews engineers for a role like this, what do you actually probe for — is it mostly systems design around pipeline topology, or do you go deep on Vector/VRL specifics, or something else? I want to make sure I'm studying the right things this week."
 
+- 
+
 ---
 
 ## Notes

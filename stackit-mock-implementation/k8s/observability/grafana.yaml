@@ -103,21 +103,21 @@ data:
           "id": 1, "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
           "type": "stat", "title": "Request Rate (req/s)",
           "datasource": {"uid": "prometheus"},
-          "targets": [{"expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"price-service\"}[1m]))", "legendFormat": "req/s"}],
+          "targets": [{"expr": "(sum(increase(traces_spanmetrics_calls_total{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) / 300) or on() vector(0)", "legendFormat": "req/s"}],
           "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}, "unit": "reqps"}}
         },
         {
           "id": 2, "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
           "type": "stat", "title": "Error Rate (%)",
           "datasource": {"uid": "prometheus"},
-          "targets": [{"expr": "100 * sum(rate(http_server_request_duration_seconds_count{service_name=\"price-service\",http_response_status_code=~\"5..\"}[1m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"price-service\"}[1m]))", "legendFormat": "error %"}],
+          "targets": [{"expr": "(100 * sum(increase(traces_spanmetrics_calls_total{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",status_code=\"STATUS_CODE_ERROR\",span_name!=\"GET /health\"}[5m])) / clamp_min(sum(increase(traces_spanmetrics_calls_total{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])), 1)) or on() vector(0)", "legendFormat": "error %"}],
           "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}, "unit": "percent"}}
         },
         {
           "id": 3, "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
           "type": "stat", "title": "p99 Latency",
           "datasource": {"uid": "prometheus"},
-          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p99"}],
+          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) by (le)) or on() vector(0)", "legendFormat": "p99"}],
           "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.5}, {"color": "red", "value": 1}]}, "unit": "s"}}
         },
         {
@@ -131,16 +131,16 @@ data:
           "id": 5, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "type": "timeseries", "title": "Request Rate by Endpoint",
           "datasource": {"uid": "prometheus"},
-          "targets": [{"expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{service_name=\"price-service\"}[1m]))", "legendFormat": "{{http_route}}"}]
+          "targets": [{"expr": "sum by (span_name) (increase(traces_spanmetrics_calls_total{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) / 300", "legendFormat": "{{span_name}}"}]
         },
         {
           "id": 6, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "type": "timeseries", "title": "Latency Percentiles",
           "datasource": {"uid": "prometheus"},
           "targets": [
-            {"expr": "histogram_quantile(0.50, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p50"},
-            {"expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p95"},
-            {"expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p99"}
+            {"expr": "histogram_quantile(0.50, sum(rate(traces_spanmetrics_latency_bucket{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) by (le))", "legendFormat": "p50"},
+            {"expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) by (le))", "legendFormat": "p95"},
+            {"expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) by (le))", "legendFormat": "p99"}
           ],
           "fieldConfig": {"defaults": {"unit": "s"}}
         },
@@ -171,9 +171,31 @@ data:
         },
         {
           "id": 10, "gridPos": {"h": 10, "w": 24, "x": 0, "y": 30},
-          "type": "traces", "title": "Recent Traces (Tempo)",
-          "datasource": {"uid": "tempo"},
-          "targets": [{"queryType": "traceqlSearch", "filters": [{"id": "service-name", "operator": "=", "scope": "resource", "tag": "service.name", "value": ["price-service"], "valueType": "string"}]}]
+          "type": "table", "title": "Tempo Service Graph (Edge Health)",
+          "datasource": {"uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum by (client, server) (rate(traces_service_graph_request_total[5m]))",
+              "legendFormat": "req/s",
+              "format": "table",
+              "instant": true
+            },
+            {
+              "expr": "100 * sum by (client, server) (rate(traces_service_graph_request_failed_total[5m])) / clamp_min(sum by (client, server) (rate(traces_service_graph_request_total[5m])), 1e-9)",
+              "legendFormat": "error_pct",
+              "format": "table",
+              "instant": true
+            },
+            {
+              "expr": "1000 * sum by (client, server) (rate(traces_service_graph_request_server_seconds_sum[5m])) / clamp_min(sum by (client, server) (rate(traces_service_graph_request_server_seconds_count[5m])), 1e-9)",
+              "legendFormat": "avg_latency_ms",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "options": {
+            "showHeader": true
+          }
         }
       ]
     }

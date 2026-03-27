@@ -21,17 +21,25 @@ CUSTOMER_DIR       := ./customer-app
 K8S_DIR            := ./k8s
 SCRIPTS_DIR        := ./scripts
 OPERATOR_NAMESPACE := telemetry-system
+NODE_ARCH          := $(shell kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null)
+HOST_ARCH_RAW      := $(shell uname -m)
+HOST_ARCH          := $(if $(filter aarch64 arm64,$(HOST_ARCH_RAW)),arm64,$(if $(filter x86_64 amd64,$(HOST_ARCH_RAW)),amd64,$(HOST_ARCH_RAW)))
+IMAGE_ARCH         ?= $(if $(NODE_ARCH),$(NODE_ARCH),$(HOST_ARCH))
+IMAGE_PLATFORM     ?= linux/$(IMAGE_ARCH)
+SIM_BUFFER_DURATION ?= 90
+SIM_BUFFER_PARALLEL ?= 40
 API_PORT           := 8080
 GRAFANA_PORT       := 3000
 PROMETHEUS_PORT    := 9090
 CUSTOMER_PORT      := 8000
 
 .PHONY: all build-images build-operator build-customer \
+        load-images \
         deploy-all deploy-crds deploy-namespaces deploy-observability \
         deploy-operator deploy-customer-app create-router \
         hotfix-operator hotfix-customer hotfix-observability \
         port-forward stop-port-forward \
-        simulate test status logs \
+        simulate simulate-buffer test status logs \
         teardown teardown-router teardown-observability \
         help
 
@@ -44,20 +52,33 @@ all: help
 ## build-images: Build both Docker images (operator + customer app)
 build-images: build-operator build-customer
 
+## load-images: Import locally-built images into Docker Desktop Kubernetes node runtime
+load-images:
+	@echo "▶  Loading local images into Kubernetes node runtime"
+	@NODE=$$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
+	if [ -z "$$NODE" ]; then \
+	    echo "   Could not detect Kubernetes node name"; \
+	    exit 1; \
+	fi; \
+	echo "   Node: $$NODE"; \
+	docker save $(OPERATOR_IMAGE) | docker exec -i $$NODE ctr -n k8s.io images import - >/dev/null; \
+	docker save $(CUSTOMER_IMAGE) | docker exec -i $$NODE ctr -n k8s.io images import - >/dev/null; \
+	echo "   Images loaded"
+
 ## build-operator: Build the Go operator image (runs go mod tidy inside Docker)
 build-operator:
 	@echo "▶  Building operator image: $(OPERATOR_IMAGE)"
-	docker build -t $(OPERATOR_IMAGE) $(OPERATOR_DIR)
+	docker build --platform $(IMAGE_PLATFORM) -t $(OPERATOR_IMAGE) $(OPERATOR_DIR)
 
 ## build-customer: Build the Python price-service image
 build-customer:
 	@echo "▶  Building customer app image: $(CUSTOMER_IMAGE)"
-	docker build -t $(CUSTOMER_IMAGE) $(CUSTOMER_DIR)
+	docker build --platform $(IMAGE_PLATFORM) -t $(CUSTOMER_IMAGE) $(CUSTOMER_DIR)
 
 # ── Full deploy ───────────────────────────────────────────────────────────────
 
 ## deploy-all: Build images and deploy every component to Docker Desktop K8s
-deploy-all: build-images deploy-namespaces deploy-crds deploy-observability deploy-operator deploy-customer-app
+deploy-all: build-images load-images deploy-namespaces deploy-crds deploy-observability deploy-operator deploy-customer-app
 	@echo ""
 	@echo "✅  All components deployed!"
 	@echo ""
@@ -128,7 +149,7 @@ deploy-customer-app: deploy-namespaces
 # ── Hotfix rebuilds (no full teardown required) ───────────────────────────────
 
 ## hotfix-operator: Rebuild operator image + rolling-restart (keeps CR and Vector alive)
-hotfix-operator: build-operator
+hotfix-operator: build-operator load-images
 	@echo "▶  Rolling restart of telemetry-operator to pick up new image"
 	kubectl rollout restart deployment/telemetry-operator -n $(OPERATOR_NAMESPACE)
 	kubectl rollout status  deployment/telemetry-operator -n $(OPERATOR_NAMESPACE) --timeout=90s
@@ -152,7 +173,7 @@ hotfix-operator-and-validate: hotfix-operator
 	fi
 
 ## hotfix-customer: Rebuild customer-app image + rolling-restart
-hotfix-customer: build-customer
+hotfix-customer: build-customer load-images
 	@echo "▶  Applying updated customer-app deployment manifest"
 	kubectl apply -f $(K8S_DIR)/customer-app/deployment.yaml
 	kubectl rollout restart deployment/price-service -n customer-app
@@ -215,6 +236,37 @@ simulate:
 	@echo "▶  Generating test traffic via /simulate endpoint..."
 	curl -s http://localhost:$(CUSTOMER_PORT)/simulate | python3 -m json.tool || \
 	    echo "   (price-service not reachable — is 'make port-forward' running?)"
+
+## simulate-buffer: Scale Loki down, run in-cluster load, validate Vector backpressure signals, restore Loki
+simulate-buffer:
+	@DUR=$(SIM_BUFFER_DURATION); PAR=$(SIM_BUFFER_PARALLEL); \
+	set -e; \
+	cleanup() { \
+	    echo "▶  Restoring Loki and port-forwards..."; \
+	    kubectl scale deploy/loki -n observability --replicas=1 >/dev/null 2>&1 || true; \
+	    kubectl rollout status deployment/loki -n observability --timeout=120s >/dev/null 2>&1 || true; \
+	    $(MAKE) port-forward >/dev/null 2>&1 || true; \
+	    kubectl delete pod loadgen-buffer -n customer-app --ignore-not-found >/dev/null 2>&1 || true; \
+	}; \
+	trap cleanup EXIT; \
+	echo "▶  Simulating sink outage: scaling Loki to 0 replicas"; \
+	kubectl scale deploy/loki -n observability --replicas=0; \
+	kubectl get endpoints -n observability loki; \
+	echo "▶  Starting in-cluster loadgen pod (duration=$$DUR s, parallel=$$PAR)"; \
+	kubectl delete pod loadgen-buffer -n customer-app --ignore-not-found >/dev/null 2>&1 || true; \
+	kubectl run -n customer-app loadgen-buffer --restart=Never --image=curlimages/curl -- \
+	    sh -c "for t in \$$(seq 1 $$DUR); do for i in \$$(seq 1 $$PAR); do curl -s http://price-service:8000/simulate >/dev/null & done; wait; done"; \
+	kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/loadgen-buffer -n customer-app --timeout=$$((DUR + 60))s || true; \
+	echo "▶  Validating backpressure-related signals"; \
+	BUFFER_LINES=$$(curl -s http://localhost:9598/metrics | rg 'vector_buffer_(events|byte)_' | wc -l | tr -d ' '); \
+	RETRY_LINES=$$(kubectl logs -n $(OPERATOR_NAMESPACE) -l app=vector --tail=400 | rg -i 'sink_loki|Retrying after error|Connection refused|Events dropped' | wc -l | tr -d ' '); \
+	echo "   Vector buffer metric lines found: $$BUFFER_LINES"; \
+	echo "   Vector retry/error log lines found: $$RETRY_LINES"; \
+	if [ "$$RETRY_LINES" -gt 0 ]; then \
+	    echo "✅  Backpressure signal detected (sink retries/errors present)."; \
+	else \
+	    echo "⚠️  No sink retry/error lines found in recent logs; try higher load."; \
+	fi
 
 ## test: Run the full test script (checks all endpoints, then validates telemetry)
 test:

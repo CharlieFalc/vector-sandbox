@@ -5,6 +5,10 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /workspace
 
+# BuildKit provides TARGETOS/TARGETARCH so the binary matches cluster nodes.
+ARG TARGETOS=linux
+ARG TARGETARCH
+
 # Copy module manifest first so this layer is cached unless deps change
 COPY go.mod ./
 
@@ -16,7 +20,7 @@ COPY . .
 
 # Tidy (generates go.sum from scratch if missing) then build a statically-linked binary
 RUN go mod tidy && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /operator ./main.go
 
 # ── Stage 2: minimal runtime image ───────────────────────────────────────────

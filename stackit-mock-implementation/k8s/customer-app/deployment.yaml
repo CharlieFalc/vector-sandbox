@@ -18,17 +18,16 @@ spec:
       containers:
         - name: price-service
           image: stackit-mock/price-service:local
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
           env:
-            # All OTel signals → Vector (logs+traces+metrics).
-            # Vector 0.44 routes each signal to the appropriate backend:
-            #   Logs    → enrich (VRL) → Loki
-            #   Traces  → opentelemetry sink (otlp codec) → Tempo :4318
-            #   Metrics → opentelemetry sink (otlp codec) → Prometheus OTLP receiver
+            # Logs and metrics go to Vector; traces go directly to Tempo.
+            # This avoids Vector trace serialization issues on current Vector/OTLP combo.
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://vector.telemetry-system.svc.cluster.local:4318"
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: "http://tempo.observability.svc.cluster.local:4318/v1/traces"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: "http/protobuf"
             - name: OTEL_SERVICE_NAME
