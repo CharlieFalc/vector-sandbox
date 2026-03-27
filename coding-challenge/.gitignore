@@ -1,0 +1,3 @@
+bin/
+cmd/server/openapi.yaml
+*.out

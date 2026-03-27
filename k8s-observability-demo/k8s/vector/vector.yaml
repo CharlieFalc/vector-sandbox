@@ -1,0 +1,121 @@
+---
+# Vector ConfigMap — baseline config.
+# The operator patches this from the SignalPolicy CR's backpressure settings.
+#
+# Vector role: DaemonSet — one pod per node.
+# Responsibility: collect stdout/stderr from ALL pods in the demo namespace,
+# parse structured JSON logs (emitted by zerolog in signal-forge),
+# and forward them to SigNoz via HTTP OTLP.
+#
+# Why Vector instead of Fluent Bit or Fluentd?
+#   - VRL (Vector Remap Language) is a sandboxed, typed DSL for transforms.
+#     No arbitrary code execution — safer and easier to audit.
+#   - Per-sink buffer isolation: each sink has its own bounded buffer.
+#     A slow/down SigNoz doesn't block other sinks (e.g. S3 archival).
+#   - First-class Kubernetes source with metadata enrichment.
+#   - OTLP-native output support.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: observability-demo
+  labels:
+    app: vector
+    app.kubernetes.io/part-of: observability-demo
+  annotations:
+    observability.demo.dev/config-hash: "initial"
+data:
+  vector.toml: |
+    # ==========================================================================
+    # Sources
+    # ==========================================================================
+
+    # Collect logs from all pods in the demo namespace.
+    # Vector reads from /var/log/pods/ on each node (host-mounted).
+    [sources.kubernetes_logs]
+      type = "kubernetes_logs"
+      extra_label_selector = "app.kubernetes.io/part-of=observability-demo"
+      # Include self (vector pods) for meta-observability
+      exclude_paths_glob_patterns = []
+
+    # ==========================================================================
+    # Transforms
+    # ==========================================================================
+
+    [transforms.parse_and_enrich]
+      type = "remap"
+      inputs = ["kubernetes_logs"]
+      source = '''
+        # signal-forge emits structured JSON via zerolog.
+        # Parse it and merge fields into the event root.
+        parsed, err = parse_json(.message)
+        if err == null {
+          . = merge(., parsed)
+        }
+
+        # Ensure required fields exist
+        if !exists(.timestamp) {
+          .timestamp = now()
+        }
+        if !exists(.level) {
+          .level = "info"
+        }
+
+        # Map log level to OTel severity
+        .severity_text = upcase(string!(.level))
+        .severity_number = if .level == "trace"  { 1 }
+          else if .level == "debug"  { 5 }
+          else if .level == "info"   { 9 }
+          else if .level == "warn"   { 13 }
+          else if .level == "error"  { 17 }
+          else if .level == "fatal"  { 21 }
+          else { 9 }
+
+        # Promote Kubernetes metadata to OTel resource attributes.
+        # These appear as resource labels in SigNoz — great for filtering.
+        .resource = {
+          "k8s.pod.name":        .kubernetes.pod_name,
+          "k8s.namespace.name":  .kubernetes.pod_namespace,
+          "k8s.node.name":       .kubernetes.pod_node_name,
+          "k8s.container.name":  .kubernetes.container_name,
+          "service.name":        get!(.kubernetes.pod_labels, ["app"]) ?? "unknown",
+        }
+
+        # Strip the raw kubernetes metadata block to reduce payload size.
+        del(.kubernetes)
+        del(.file)
+        del(.source_type)
+      '''
+
+    # Drop noisy healthcheck logs to reduce signal/noise ratio.
+    [transforms.drop_healthchecks]
+      type = "filter"
+      inputs = ["parse_and_enrich"]
+      condition = '!match(string!(.path ?? ""), r"/health|/ready")'
+
+    # ==========================================================================
+    # Sinks
+    # ==========================================================================
+
+    # Primary sink: SigNoz via OTLP HTTP.
+    # Uses a disk-backed buffer — survives SigNoz restarts without losing logs.
+    [sinks.signoz_logs]
+      type = "http"
+      inputs = ["drop_healthchecks"]
+      uri = "http://signoz-otel-collector.platform.svc.cluster.local:4318/v1/logs"
+      encoding.codec = "json"
+      method = "post"
+      request.headers."Content-Type" = "application/json"
+      request.concurrency = 4
+      request.timeout_secs = 30
+
+      # Disk buffer — absorbs log bursts and survives SigNoz downtime.
+      # The operator patches max_size and when_full from SignalPolicy.backpressure.
+      [sinks.signoz_logs.buffer]
+        type = "disk"
+        max_size = 268435456  # 256MB — patched by operator
+        when_full = "drop_newest"  # patched by operator
+
+      # Retry failed requests with exponential backoff.
+      [sinks.signoz_logs.request.retry_attempts]
+        # handled by Vector's built-in retry logic

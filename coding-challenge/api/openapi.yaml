@@ -1,0 +1,317 @@
+openapi: 3.0.3
+info:
+  title: Transform Registry API
+  description: |
+    STACKIT Telemetry Router — Transform Registry Service.
+
+    Customers register named VRL (Vector Remap Language) transform programs
+    that the Telemetry Router applies to log records before fan-out to
+    configured destinations. Transforms are compiled asynchronously after
+    registration; poll the resource or GET /transforms/{id} to observe the
+    status transition COMPILING → ACTIVE | FAILED.
+
+    ## Status lifecycle
+
+    ```
+    POST /transforms
+         │
+         ▼
+      COMPILING  ──(background VRL compilation)──▶  ACTIVE
+                                               └──▶  FAILED  (errorMessage set)
+    ```
+
+    ## Error model
+    All errors return `application/json` with `{ "code": <HTTP status>, "message": "..." }`.
+  version: v1alpha1
+  contact:
+    name: STACKIT Telemetry Router Team
+    url: https://docs.stackit.cloud/products/logging-and-monitoring/telemetry-router/
+
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development server
+
+tags:
+  - name: transforms
+    description: VRL transform program management
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # Collection: /transforms
+  # ---------------------------------------------------------------------------
+  /transforms:
+
+    post:
+      tags: [transforms]
+      operationId: createTransform
+      summary: Register a new VRL transform
+      description: |
+        Creates a transform record synchronously (returns `201` with a stable
+        `transformId` immediately) and kicks off asynchronous VRL compilation.
+        Poll `GET /transforms/{transformId}` until `status` is `ACTIVE` or
+        `FAILED` before attaching the transform to a router instance.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransformRequest'
+            examples:
+              redact_emails:
+                summary: Redact email addresses
+                value:
+                  name: redact-emails
+                  description: Strips email addresses from log bodies
+                  vrl: ".message = replace(.message, r'\\b[\\w.]+@[\\w.]+\\b', \"[REDACTED]\")"
+              redact_ips:
+                summary: Redact IPv4 addresses
+                value:
+                  name: redact-ipv4
+                  description: Masks IPv4 addresses in log bodies
+                  vrl: ".message = replace(.message, r'\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b', \"[REDACTED_IP]\")"
+      responses:
+        '201':
+          description: Transform record created; compilation initiated in background.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transform'
+              example:
+                transformId: tr-7f3a9b2c-1d4e-4f5a-8b9c-0d1e2f3a4b5c
+                name: redact-emails
+                description: Strips email addresses from log bodies
+                status: COMPILING
+                createdAt: "2026-03-22T14:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+    get:
+      tags: [transforms]
+      operationId: listTransforms
+      summary: List transforms with optional filtering
+      description: |
+        Returns all registered transforms. Use query parameters to narrow
+        results by `status` or by a case-insensitive `name` substring.
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/NameFilter'
+      responses:
+        '200':
+          description: Paginated list of transforms (unfiltered or filtered).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransformList'
+
+  # ---------------------------------------------------------------------------
+  # Item: /transforms/{transformId}
+  # ---------------------------------------------------------------------------
+  /transforms/{transformId}:
+
+    parameters:
+      - $ref: '#/components/parameters/TransformId'
+
+    get:
+      tags: [transforms]
+      operationId: getTransform
+      summary: Get a transform by ID
+      description: |
+        Returns the current state of the transform. Use this to poll for
+        compilation completion (`COMPILING` → `ACTIVE` | `FAILED`).
+      responses:
+        '200':
+          description: Transform found (regardless of status).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transform'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [transforms]
+      operationId: deleteTransform
+      summary: Delete a transform
+      description: |
+        Deletes the transform record. Returns `409 Conflict` if the transform
+        is currently referenced by one or more active router instances — detach
+        it from all instances before deleting.
+      responses:
+        '204':
+          description: Transform deleted. No response body.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+
+    TransformStatus:
+      type: string
+      enum: [COMPILING, ACTIVE, FAILED]
+      description: |
+        - `COMPILING` — compilation in progress; transform is not yet usable.
+        - `ACTIVE`    — compiled successfully; ready to attach to router instances.
+        - `FAILED`    — compilation failed; see `errorMessage` for details.
+
+    CreateTransformRequest:
+      type: object
+      required: [name, vrl]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[a-z0-9][a-z0-9\-]*[a-z0-9]$'
+          description: Unique, lowercase-kebab-case name for this transform.
+          example: redact-emails
+        description:
+          type: string
+          maxLength: 512
+          description: Human-readable description of what the transform does.
+          example: Strips email addresses from log bodies
+        vrl:
+          type: string
+          minLength: 1
+          description: VRL program source code applied to each log record.
+          example: ".message = replace(.message, r'\\b[\\w.]+@[\\w.]+\\b', \"[REDACTED]\")"
+
+    Transform:
+      type: object
+      required: [transformId, name, vrl, status, createdAt]
+      properties:
+        transformId:
+          type: string
+          format: uuid
+          description: Stable, unique identifier assigned at creation.
+          example: tr-7f3a9b2c-1d4e-4f5a-8b9c-0d1e2f3a4b5c
+        name:
+          type: string
+          example: redact-emails
+        description:
+          type: string
+          example: Strips email addresses from log bodies
+        vrl:
+          type: string
+          example: ".message = replace(.message, r'\\b[\\w.]+@[\\w.]+\\b', \"[REDACTED]\")"
+        status:
+          $ref: '#/components/schemas/TransformStatus'
+        errorMessage:
+          type: string
+          nullable: true
+          description: Populated only when status is `FAILED`.
+          example: "VRL compilation error: unexpected token '.' at line 1, column 9"
+        createdAt:
+          type: string
+          format: date-time
+          description: RFC3339 timestamp of when the transform was registered.
+        compiledAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: RFC3339 timestamp of when compilation completed. Null until ACTIVE.
+
+    TransformList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transform'
+        total:
+          type: integer
+          description: Total number of items in the filtered result set.
+          example: 3
+
+    APIError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: HTTP status code.
+          example: 409
+        message:
+          type: string
+          description: Human-readable error description.
+          example: "a transform with this name already exists"
+
+  # ---------------------------------------------------------------------------
+  # Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+
+    TransformId:
+      name: transformId
+      in: path
+      required: true
+      description: Unique identifier of the transform (returned by POST /transforms).
+      schema:
+        type: string
+
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Filter by exact status value.
+      schema:
+        $ref: '#/components/schemas/TransformStatus'
+
+    NameFilter:
+      name: name
+      in: query
+      required: false
+      description: Case-insensitive substring match on the transform name.
+      schema:
+        type: string
+
+  # ---------------------------------------------------------------------------
+  # Reusable responses
+  # ---------------------------------------------------------------------------
+  responses:
+
+    BadRequest:
+      description: The request body is missing required fields or has invalid values.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            code: 400
+            message: "'name' and 'vrl' are required"
+
+    NotFound:
+      description: The requested transform does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            code: 404
+            message: "transform not found"
+
+    Conflict:
+      description: |
+        409 is returned in two cases:
+        - A transform with the same `name` already exists (on POST).
+        - The transform is referenced by active router instances (on DELETE).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIError'
+          example:
+            code: 409
+            message: "a transform with this name already exists"

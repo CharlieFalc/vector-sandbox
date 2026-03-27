@@ -1,0 +1,128 @@
+---
+# signal-forge Deployment
+# The app emits OTel traces/metrics to the OTel Collector sidecar-free —
+# it sends directly to the otel-collector Service on port 4317.
+# Logs go to stdout and are collected by the Vector DaemonSet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-forge
+  namespace: observability-demo
+  labels:
+    app: signal-forge
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: observability-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signal-forge
+  template:
+    metadata:
+      labels:
+        app: signal-forge
+        app.kubernetes.io/part-of: observability-demo
+      annotations:
+        # Prometheus scrape — the app doesn't expose /metrics directly;
+        # use the OTel Collector's prometheus exporter (port 8888) instead.
+        prometheus.io/scrape: "false"
+    spec:
+      serviceAccountName: signal-forge
+      containers:
+        - name: signal-forge
+          image: signal-forge:latest
+          imagePullPolicy: Never   # use local Docker Desktop image
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # OTel Collector address — resolves to the in-cluster Service.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "signal-forge"
+            - name: SERVICE_VERSION
+              value: "0.1.0"
+            # Sampling ratio — patched by the operator from SignalPolicy CR.
+            # Starts at 1.0 (sample everything); operator may lower this.
+            - name: OTEL_SAMPLING_RATIO
+              value: "1.0000"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-forge
+  namespace: observability-demo
+  labels:
+    app: signal-forge
+    app.kubernetes.io/part-of: observability-demo
+spec:
+  selector:
+    app: signal-forge
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# Operator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-forge-operator
+  namespace: observability-demo
+  labels:
+    app: signal-forge-operator
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: observability-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signal-forge-operator
+  template:
+    metadata:
+      labels:
+        app: signal-forge-operator
+        app.kubernetes.io/part-of: observability-demo
+    spec:
+      serviceAccountName: signal-forge-operator
+      containers:
+        - name: operator
+          image: signal-forge-operator:latest
+          imagePullPolicy: Never
+          env:
+            - name: WATCH_NAMESPACE
+              value: "observability-demo"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"

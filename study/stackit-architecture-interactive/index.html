@@ -1,0 +1,1854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>STACKIT Telemetry Architecture — Interactive Explorer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d1117;color:#e1e4e8;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+#topbar{background:#161b22;border-bottom:1px solid #21262d;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+#topbar h1{font-size:1rem;color:#58a6ff;font-weight:600;}
+#topbar p{font-size:0.78rem;color:#8b949e;}
+#hint{font-size:0.75rem;color:#3fb950;background:#0d1f12;border:1px solid #238636;border-radius:20px;padding:4px 12px;}
+#main{display:flex;flex:1;overflow:hidden;flex-direction:row;}
+/* ── DOCK POSITIONS ── */
+#main.dock-left{flex-direction:row;}
+#main.dock-right{flex-direction:row-reverse;}
+#main.dock-top{flex-direction:column;}
+#main.dock-bottom{flex-direction:column-reverse;}
+/* panel base */
+#panel{background:#161b22;overflow:auto;flex-shrink:0;display:flex;flex-direction:column;transition:width 0.25s ease,height 0.25s ease;}
+/* horizontal: left/right */
+#main.dock-left #panel,#main.dock-right #panel{width:0;height:auto;min-width:0;border-right:1px solid #21262d;border-top:none;border-bottom:none;}
+#main.dock-right #panel{border-right:none;border-left:1px solid #21262d;}
+#main.dock-left #panel.open,#main.dock-right #panel.open{width:50%;}
+/* vertical: top/bottom */
+#main.dock-top #panel,#main.dock-bottom #panel{height:0;width:100%;min-height:0;border-bottom:1px solid #21262d;border-right:none;}
+#main.dock-bottom #panel{border-bottom:none;border-top:1px solid #21262d;}
+#main.dock-top #panel.open,#main.dock-bottom #panel.open{height:45%;}
+#panel-inner{padding:24px;min-width:300px;}
+#panel-close{position:sticky;top:0;background:#161b22;border-bottom:1px solid #21262d;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:10;}
+#panel-close h2{font-size:1rem;color:#f0f6ff;}
+#panel-close button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.8rem;}
+#panel-close button:hover{background:#30363d;}
+.db{background:none;border:none;color:#8b949e;cursor:pointer;padding:3px 5px;border-radius:4px;display:flex;align-items:center;line-height:1;}
+.db:hover{color:#e1e4e8;background:#21262d;}
+.db.active{color:#58a6ff;background:#1c3a5e;}
+.panel-section{margin-bottom:24px;}
+.panel-section h3{font-size:0.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8b949e;margin-bottom:10px;}
+.panel-section p{font-size:0.88rem;color:#c9d1d9;line-height:1.65;margin-bottom:8px;}
+.panel-section ul{padding-left:18px;}
+.panel-section li{font-size:0.88rem;color:#c9d1d9;margin-bottom:5px;line-height:1.5;}
+.docs-links a{display:block;font-size:0.82rem;color:#58a6ff;text-decoration:none;margin-bottom:6px;padding:6px 10px;background:#1c2d3a;border-radius:4px;border-left:2px solid #58a6ff;}
+.docs-links a:hover{background:#243447;}
+.tag{display:inline-block;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:12px;margin:0 4px 4px 0;}
+.tag.blue{background:#1c3a5e;color:#79c0ff;}
+.tag.green{background:#1a3a2a;color:#56d364;}
+.tag.orange{background:#3a2a1a;color:#f0a500;}
+.tag.purple{background:#2a1a3a;color:#bc8cff;}
+.tag.red{background:#3a1a1a;color:#ff7b72;}
+.code-label{font-size:0.72rem;color:#8b949e;margin-bottom:4px;font-family:monospace;}
+pre{margin:6px 0 14px!important;border-radius:6px!important;font-size:0.78rem!important;line-height:1.5!important;}
+pre code{font-family:'JetBrains Mono','Fira Code',monospace!important;}
+#diagram-wrap{flex:1;overflow:auto;position:relative;padding:24px;}
+#diagram{position:relative;width:900px;min-height:900px;margin:0 auto;}
+.node{position:absolute;border-radius:8px;padding:10px 14px;cursor:pointer;border:1px solid transparent;transition:all .15s ease;user-select:none;}
+.node:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.4);}
+.node.active{box-shadow:0 0 0 2px #58a6ff;}
+.node-title{font-size:0.78rem;font-weight:700;white-space:nowrap;}
+.node-sub{font-size:0.68rem;color:#8b949e;white-space:nowrap;margin-top:2px;}
+.node-app{background:#0d2012;border-color:#238636;} .node-app .node-title{color:#56d364;}
+.node-platform{background:#1f1a0a;border-color:#9a6700;} .node-platform .node-title{color:#f0a500;}
+.node-vector{background:#0d1f2d;border-color:#1a6fa3;} .node-vector .node-title{color:#58a6ff;}
+.node-sink{background:#1a0d2a;border-color:#7c3aed;} .node-sink .node-title{color:#bc8cff;}
+.node-viz{background:#1f0d0d;border-color:#b91c1c;} .node-viz .node-title{color:#ff7b72;}
+.node-operator{background:#1a1a2a;border-color:#3b82f6;} .node-operator .node-title{color:#93c5fd;}
+.node-api{background:#0d2020;border-color:#0891b2;} .node-api .node-title{color:#67e8f9;}
+.group-box{position:absolute;border-radius:10px;border:1px dashed;padding:10px;}
+.group-label{font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;}
+.group-app{border-color:#238636;background:rgba(35,134,54,.06);}  .group-app .group-label{color:#56d364;}
+.group-platform{border-color:#9a6700;background:rgba(154,103,0,.06);} .group-platform .group-label{color:#f0a500;}
+.group-vector{border-color:#1a6fa3;background:rgba(26,111,163,.08);} .group-vector .group-label{color:#58a6ff;}
+.group-viz{border-color:#b91c1c;background:rgba(185,28,28,.06);} .group-viz .group-label{color:#ff7b72;}
+#arrows{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <div>
+    <h1>STACKIT Telemetry Architecture — Interactive Explorer</h1>
+    <p style="margin-top:2px;">Click any component to explore code examples, configs, and docs</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div id="dock-btns" style="display:flex;gap:2px;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:3px;">
+      <button onclick="setDock('left')"  id="db-left"   title="Dock left"   class="db active">
+        <svg width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="6" height="12" rx="1" fill="currentColor" opacity="0.9"/><rect x="9" y="1" width="8" height="12" rx="1" fill="currentColor" opacity="0.25"/></svg>
+      </button>
+      <button onclick="setDock('right')" id="db-right"  title="Dock right"  class="db">
+        <svg width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="8" height="12" rx="1" fill="currentColor" opacity="0.25"/><rect x="11" y="1" width="6" height="12" rx="1" fill="currentColor" opacity="0.9"/></svg>
+      </button>
+      <button onclick="setDock('bottom')" id="db-bottom" title="Dock bottom" class="db">
+        <svg width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="16" height="7" rx="1" fill="currentColor" opacity="0.25"/><rect x="1" y="9" width="16" height="4" rx="1" fill="currentColor" opacity="0.9"/></svg>
+      </button>
+      <button onclick="setDock('top')"   id="db-top"    title="Dock top"    class="db">
+        <svg width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="1" width="16" height="4" rx="1" fill="currentColor" opacity="0.9"/><rect x="1" y="7" width="16" height="7" rx="1" fill="currentColor" opacity="0.25"/></svg>
+      </button>
+    </div>
+    <span id="hint">&#8592; Click a node to open the detail panel</span>
+  </div>
+</div>
+<div id="main">
+  <div id="panel">
+    <div id="panel-close">
+      <h2 id="panel-title">Component</h2>
+      <button onclick="closePanel()">&#10005; Close</button>
+    </div>
+    <div id="panel-inner"></div>
+  </div>
+  <div id="diagram-wrap">
+    <div id="diagram">
+      <svg id="arrows"></svg>
+      <div class="group-box group-app" style="left:20px;top:20px;width:560px;height:140px;"><div class="group-label">Customer Workloads (STACKIT SKE / VMs)</div></div>
+      <div class="group-box group-platform" style="left:600px;top:20px;width:270px;height:140px;"><div class="group-label">STACKIT Platform</div></div>
+      <div class="group-box group-vector" style="left:20px;top:200px;width:630px;height:370px;"><div class="group-label">Telemetry Router &mdash; Vector (Managed K8s Service)</div></div>
+      <div class="group-box group-viz" style="left:20px;top:680px;width:860px;height:130px;"><div class="group-label">Visualization &amp; Storage Layer</div></div>
+
+      <div class="node node-app" style="left:40px;top:60px;width:160px;" id="n-sdk" onclick="show('sdk')"><div class="node-title">&#11042; OTel SDK</div><div class="node-sub">Go / Java / Python app</div></div>
+      <div class="node node-app" style="left:220px;top:60px;width:160px;" id="n-k8slogs" onclick="show('k8slogs')"><div class="node-title">&#128203; k8s System Logs</div><div class="node-sub">kubelet &middot; control plane</div></div>
+      <div class="node node-app" style="left:400px;top:60px;width:160px;" id="n-otelcol" onclick="show('otelcol')"><div class="node-title">&#x1F500; OTel Collector</div><div class="node-sub">agent / sidecar (optional)</div></div>
+      <div class="node node-platform" style="left:620px;top:55px;width:155px;" id="n-audit" onclick="show('audit')"><div class="node-title">&#128272; Audit Events</div><div class="node-sub">IAM &middot; API calls &middot; lifecycle</div></div>
+      <div class="node node-platform" style="left:620px;top:115px;width:155px;" id="n-svclog" onclick="show('svclog')"><div class="node-title">&#128230; Service Logs</div><div class="node-sub">SKE &middot; ObjectStorage &middot; VMs</div></div>
+
+      <div class="node node-vector" style="left:40px;top:245px;width:180px;" id="n-src-otlp" onclick="show('src-otlp')"><div class="node-title">&#9654; SOURCE: OTLP</div><div class="node-sub">gRPC :4317 &middot; HTTP :4318</div></div>
+      <div class="node node-vector" style="left:240px;top:245px;width:180px;" id="n-src-audit" onclick="show('src-audit')"><div class="node-title">&#9654; SOURCE: Audit</div><div class="node-sub">STACKIT internal ingest</div></div>
+      <div class="node node-vector" style="left:120px;top:330px;width:200px;" id="n-vrl" onclick="show('vrl')"><div class="node-title">&#9881; TRANSFORM: VRL</div><div class="node-sub">filter &middot; redact &middot; enrich</div></div>
+      <div class="node node-vector" style="left:120px;top:410px;width:200px;" id="n-buffer" onclick="show('buffer')"><div class="node-title">&#128452; BUFFER</div><div class="node-sub">disk / memory &middot; backpressure</div></div>
+
+      <div class="node node-sink" style="left:40px;top:510px;width:150px;" id="n-sink-otlp" onclick="show('sink-otlp')"><div class="node-title">&#8599; SINK: OTLP</div><div class="node-sub">external SIEM / Datadog</div></div>
+      <div class="node node-sink" style="left:210px;top:510px;width:150px;" id="n-sink-obs" onclick="show('sink-obs')"><div class="node-title">&#8599; SINK: Observability</div><div class="node-sub">STACKIT Argus / Grafana</div></div>
+      <div class="node node-sink" style="left:380px;top:510px;width:150px;" id="n-sink-s3" onclick="show('sink-s3')"><div class="node-title">&#8599; SINK: S3</div><div class="node-sub">Object Storage archive</div></div>
+      <div class="node node-sink" style="left:550px;top:510px;width:150px;" id="n-sink-logme" onclick="show('sink-logme')"><div class="node-title">&#8599; SINK: LogMe</div><div class="node-sub">OpenSearch HTTP</div></div>
+
+      <div class="node node-operator" style="left:720px;top:200px;width:155px;" id="n-operator" onclick="show('operator')"><div class="node-title">&#128295; K8s Operator</div><div class="node-sub">TelemetryRouter CRD</div></div>
+      <div class="node node-api" style="left:720px;top:295px;width:155px;" id="n-api" onclick="show('api')"><div class="node-title">&#127758; REST API</div><div class="node-sub">STACKIT Control Plane</div></div>
+
+      <div class="node node-viz" style="left:40px;top:720px;width:180px;" id="n-argus" onclick="show('argus')"><div class="node-title">&#128202; STACKIT Observability</div><div class="node-sub">Grafana &middot; Loki &middot; Tempo &middot; Prometheus</div></div>
+      <div class="node node-viz" style="left:250px;top:720px;width:165px;" id="n-logme" onclick="show('logme')"><div class="node-title">&#128269; STACKIT LogMe</div><div class="node-sub">OpenSearch Dashboards</div></div>
+      <div class="node node-viz" style="left:440px;top:720px;width:165px;" id="n-s3view" onclick="show('s3view')"><div class="node-title">&#128451; S3 Archive</div><div class="node-sub">Object Storage &middot; compliance</div></div>
+      <div class="node node-viz" style="left:630px;top:720px;width:165px;" id="n-external" onclick="show('external')"><div class="node-title">&#128279; Customer's Tool</div><div class="node-sub">Datadog &middot; Splunk &middot; SigNoz</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NODE_DATA = {
+
+// ──────────────────────────────────────────────────────────
+"sdk": {
+  title: "OTel SDK — App Instrumentation",
+  tags:[{l:"OTEL",c:"blue"},{l:"Logs + Traces + Metrics",c:"green"},{l:"Customer-side",c:"orange"}],
+  desc:[
+    "The OpenTelemetry SDK runs inside your application code. It captures spans (traces), metrics, and log records, then exports them via the OTLP protocol (protobuf over gRPC :4317 or HTTP/JSON :4318) to the next hop — either the OTel Collector sidecar or directly to the Telemetry Router.",
+    "STACKIT customers instrument their apps once with OTel SDKs and can then route all signals to any backend without code changes — just config changes on the Telemetry Router."
+  ],
+  bullets:[
+    "OTLP/gRPC is preferred (binary protobuf, lower overhead)",
+    "OTLP/HTTP is easier to debug and works through most proxies",
+    "SDK handles batching, retry, and context propagation",
+    "Auto-instrumentation agents exist for Java, Python, .NET — Go requires manual spans"
+  ],
+  examples:[
+    {
+      title:"Go — SDK Bootstrap (traces to Telemetry Router)",
+      lang:"go",
+      code:`package main
+
+import (
+    "context"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+    "go.opentelemetry.io/otel/sdk/resource"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+    semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+)
+
+func initTracer(ctx context.Context) (*sdktrace.TracerProvider, error) {
+    exp, err := otlptracehttp.New(ctx,
+        otlptracehttp.WithEndpoint("telemetry-router.my-project.stackit.cloud:4318"),
+        otlptracehttp.WithHeaders(map[string]string{
+            "Authorization": "Bearer " + getStackitToken(),
+        }),
+        // TLS is on by default for OTLP/HTTP
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    res, _ := resource.New(ctx,
+        resource.WithAttributes(
+            semconv.ServiceName("my-api"),
+            semconv.ServiceVersion("1.2.0"),
+            // STACKIT project/region for routing
+            attribute.String("stackit.project_id", "proj-xyz789"),
+            attribute.String("stackit.region",     "eu-central-1"),
+        ),
+    )
+
+    tp := sdktrace.NewTracerProvider(
+        sdktrace.WithBatcher(exp),
+        sdktrace.WithResource(res),
+        sdktrace.WithSampler(sdktrace.TraceIDRatioBased(0.1)), // 10% sampling
+    )
+    otel.SetTracerProvider(tp)
+    return tp, nil
+}
+
+// Usage in a handler:
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+    ctx, span := otel.Tracer("my-api").Start(r.Context(), "handleRequest")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.String("http.method", r.Method),
+        attribute.String("http.path",   r.URL.Path),
+    )
+    // ... handler logic
+}`
+    },
+    {
+      title:"Go — SDK Bootstrap (logs via OTLP)",
+      lang:"go",
+      code:`// OTel Logs SDK (currently stabilising in Go)
+// Often simpler to use slog + OTLP log exporter
+import (
+    "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+    sdklog "go.opentelemetry.io/otel/sdk/log"
+)
+
+logExporter, _ := otlploghttp.New(ctx,
+    otlploghttp.WithEndpoint("telemetry-router.my-project.stackit.cloud:4318"),
+)
+
+lp := sdklog.NewLoggerProvider(
+    sdklog.WithProcessor(
+        sdklog.NewBatchProcessor(logExporter),
+    ),
+)
+// Attach to slog bridge for structured logging
+// bridge := otelslog.NewHandler("my-app", otelslog.WithLoggerProvider(lp))
+// slog.SetDefault(slog.New(bridge))`
+    },
+    {
+      title:"Kubernetes — OTLP env vars for auto-instrumentation",
+      lang:"yaml",
+      code:`# Inject OTLP endpoint via env vars — works with most auto-instrumentation agents
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-api
+spec:
+  template:
+    spec:
+      containers:
+      - name: my-api
+        image: my-api:latest
+        env:
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otelcol.observability.svc:4318"
+        - name: OTEL_SERVICE_NAME
+          value: "my-api"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "stackit.project_id=proj-xyz789,deployment.environment=production"
+        - name: OTEL_TRACES_SAMPLER
+          value: "traceidratio"
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: "0.1"`
+    }
+  ],
+  links:[
+    {label:"OpenTelemetry Go SDK",               url:"https://opentelemetry.io/docs/languages/go/"},
+    {label:"OTLP Exporter Configuration",         url:"https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/"},
+    {label:"OTel Resource Semantic Conventions",  url:"https://opentelemetry.io/docs/specs/semconv/resource/"},
+    {label:"STACKIT: Ship Traces/Logs/Metrics to Observability", url:"https://docs.stackit.cloud/stackit/en/how-to-ship-traces-logs-and-metrics-to-argus-using-opentelemetry-146276901.html"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"k8slogs": {
+  title: "Kubernetes System Logs",
+  tags:[{l:"Logs",c:"blue"},{l:"k8s",c:"green"},{l:"Vector k8s_logs source",c:"orange"}],
+  desc:[
+    "Kubernetes generates structured logs from kubelet, kube-apiserver, etcd, and container stdout/stderr. Vector has a native k8s_logs source that reads these from the node's /var/log/containers/ path via a DaemonSet, enriching each event with pod name, namespace, labels, and container name automatically.",
+    "This is separate from application OTLP — it captures the k8s infrastructure layer (scheduler events, OOMKills, restarts, etc.) that OTel SDKs don't see."
+  ],
+  bullets:[
+    "Vector DaemonSet runs on every node, reads container log files",
+    "Auto-enriches with pod/namespace/node metadata from k8s API",
+    "Can filter to specific namespaces to avoid noise",
+    "Checkpoints file positions — survives Vector restarts without re-reading"
+  ],
+  examples:[
+    {
+      title:"Vector k8s_logs source config (TOML)",
+      lang:"toml",
+      code:`# Vector automatically reads all container logs from the node
+[sources.k8s_logs]
+type = "kubernetes_logs"
+
+# Optional: only watch specific namespaces
+extra_label_selector = "app in (my-api, my-worker)"
+
+# Each event is automatically enriched with:
+# .kubernetes.pod_name
+# .kubernetes.namespace
+# .kubernetes.container_name
+# .kubernetes.node_name
+# .kubernetes.pod_labels
+# .kubernetes.pod_annotations
+
+[transforms.k8s_enrich]
+type = "remap"
+inputs = ["k8s_logs"]
+source = '''
+  # Promote common fields for easier querying in Loki/OpenSearch
+  .service_name = .kubernetes.container_name
+  .env          = get(.kubernetes.pod_labels, ["app.kubernetes.io/part-of"]) ?? "unknown"
+  # Drop noisy health-check logs to reduce cost
+  if match(string!(.message), r'GET /healthz') {
+    abort
+  }
+'''`
+    },
+    {
+      title:"DaemonSet for Vector on every k8s node",
+      lang:"yaml",
+      code:`apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: vector
+  template:
+    spec:
+      serviceAccountName: vector
+      containers:
+      - name: vector
+        image: timberio/vector:0.38.0-distroless-libc
+        args: ["--config-dir", "/etc/vector/"]
+        env:
+        - name: VECTOR_SELF_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: var-log
+          mountPath: /var/log
+          readOnly: true
+        - name: config
+          mountPath: /etc/vector
+      volumes:
+      - name: var-log
+        hostPath:
+          path: /var/log
+      - name: config
+        configMap:
+          name: vector-config
+---
+# RBAC — Vector needs to read pod metadata
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vector
+rules:
+- apiGroups: [""]
+  resources: ["pods", "namespaces", "nodes"]
+  verbs: ["get", "list", "watch"]`
+    }
+  ],
+  links:[
+    {label:"Vector kubernetes_logs source docs",  url:"https://vector.dev/docs/reference/configuration/sources/kubernetes_logs/"},
+    {label:"Vector k8s deployment guide",          url:"https://vector.dev/docs/setup/installation/platforms/kubernetes/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"otelcol": {
+  title: "OTel Collector — Agent / Sidecar",
+  tags:[{l:"Optional",c:"orange"},{l:"OTLP",c:"blue"},{l:"Preprocessing",c:"purple"}],
+  desc:[
+    "The OTel Collector is a vendor-neutral proxy/aggregator that runs alongside your app (sidecar) or per-node (agent). It's optional — you can export directly from the OTel SDK to the Telemetry Router — but it's useful for: fan-out to multiple backends during migration, CPU-offloading batching/retry from the app process, and receiving from multiple SDKs before forwarding.",
+    "At STACKIT, the most common pattern is: OTel Collector runs as a k8s DaemonSet or sidecar, aggregates traces/metrics/logs from pods on that node, then forwards OTLP to the Telemetry Router. This keeps per-pod connections low."
+  ],
+  bullets:[
+    "Receivers → Processors → Exporters pipeline (lighter than Vector — no VRL)",
+    "Good for: batching, retry, basic attribute filtering, tail-sampling",
+    "Not good for: heavy transformation — use Vector's VRL for that",
+    "Can do tail sampling (sample complete traces) — Vector cannot",
+  ],
+  examples:[
+    {
+      title:"OTel Collector config — agent forwarding to Telemetry Router",
+      lang:"yaml",
+      code:`# otelcol-contrib deployment as k8s DaemonSet agent
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317    # receives from apps on same node
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1000
+  memory_limiter:
+    limit_mib: 256
+    spike_limit_mib: 64
+  # Add k8s metadata to all signals
+  k8sattributes:
+    extract:
+      metadata:
+        - k8s.pod.name
+        - k8s.namespace.name
+        - k8s.node.name
+        - k8s.deployment.name
+  # Tail-sampling: only keep traces with errors or > 1s duration
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: errors-policy
+        type: status_code
+        status_code: {status_codes: [ERROR]}
+      - name: slow-traces
+        type: latency
+        latency: {threshold_ms: 1000}
+
+exporters:
+  otlphttp:
+    endpoint: https://telemetry-router.my-project.stackit.cloud:4318
+    headers:
+      Authorization: "Bearer \${STACKIT_TOKEN}"
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 300s
+
+service:
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, k8sattributes, tail_sampling, batch]
+      exporters:  [otlphttp]
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, k8sattributes, batch]
+      exporters:  [otlphttp]
+    logs:
+      receivers:  [otlp]
+      processors: [memory_limiter, k8sattributes, batch]
+      exporters:  [otlphttp]`
+    }
+  ],
+  links:[
+    {label:"OTel Collector docs",              url:"https://opentelemetry.io/docs/collector/"},
+    {label:"OTel Collector configuration",     url:"https://opentelemetry.io/docs/collector/configuration/"},
+    {label:"k8sattributes processor",          url:"https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/k8sattributesprocessor"},
+    {label:"Tail sampling processor",          url:"https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor"},
+    {label:"OTel Collector vs Vector — comparison", url:"https://oneuptime.com/blog/post/2026-02-06-compare-opentelemetry-collector-vs-vector-data-pipelines/view"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"audit": {
+  title: "STACKIT Platform — Audit Events",
+  tags:[{l:"Platform-generated",c:"orange"},{l:"Compliance",c:"red"},{l:"Sovereign cloud",c:"blue"}],
+  desc:[
+    "STACKIT generates audit events for every action taken on the platform: IAM role changes, resource creation/deletion, API key usage, network policy changes, k8s cluster operations, etc. These are critical for compliance in a sovereign cloud — customers must be able to prove who did what, when, from where.",
+    "The Telemetry Router's primary initial use case (GA March 2026) is routing these audit events to customer-controlled destinations. Previously they were only available via the STACKIT Audit Log API — now customers can fan them out to S3, their own SIEM, or STACKIT Observability."
+  ],
+  bullets:[
+    "All STACKIT API calls generate audit events",
+    "Events include: actor, action, resource, timestamp, project ID, IP",
+    "Sovereign cloud requirement: events must stay in EU regions",
+    "Replacing the old STACKIT Audit Log API (deprecated)",
+    "Critical for GDPR Article 30 records of processing activities"
+  ],
+  examples:[
+    {
+      title:"Example Audit Event (OTLP LogRecord payload)",
+      lang:"json",
+      code:`{
+  "timeUnixNano": "1711458000000000000",
+  "severityText": "INFO",
+  "body": {
+    "stringValue": "IAM role assigned to user"
+  },
+  "attributes": [
+    {"key": "event.type",           "value": {"stringValue": "audit"}},
+    {"key": "event.action",         "value": {"stringValue": "iam.role.assign"}},
+    {"key": "event.outcome",        "value": {"stringValue": "success"}},
+    {"key": "actor.user_id",        "value": {"stringValue": "usr-abc123"}},
+    {"key": "actor.email",          "value": {"stringValue": "admin@company.de"}},
+    {"key": "actor.ip",             "value": {"stringValue": "203.0.113.42"}},
+    {"key": "target.project_id",    "value": {"stringValue": "proj-xyz789"}},
+    {"key": "target.resource_type", "value": {"stringValue": "iam.role"}},
+    {"key": "target.resource_id",   "value": {"stringValue": "role-viewer-prod"}},
+    {"key": "stackit.region",       "value": {"stringValue": "eu-central-1"}},
+    {"key": "stackit.datacenter",   "value": {"stringValue": "DE-BAW-1"}}
+  ],
+  "resource": {
+    "attributes": [
+      {"key": "service.name",       "value": {"stringValue": "stackit-iam"}},
+      {"key": "cloud.provider",     "value": {"stringValue": "stackit"}},
+      {"key": "cloud.region",       "value": {"stringValue": "eu-central-1"}}
+    ]
+  }
+}`
+    },
+    {
+      title:"VRL: Route audit events to SIEM, drop non-EU",
+      lang:"toml",
+      code:`[transforms.audit_filter]
+type = "remap"
+inputs = ["source_audit"]
+source = '''
+  # Only process audit events
+  if .attributes.event_type != "audit" {
+    abort
+  }
+
+  # EU sovereignty check — drop events from non-EU DCs
+  region = string(.attributes.stackit_region) ?? ""
+  if !starts_with(region, "eu-") {
+    log("Dropping non-EU audit event: " + region, level: "warn")
+    abort
+  }
+
+  # Enrich for SIEM ingestion
+  .siem_severity = if .attributes.event_outcome == "failure" { "HIGH" } else { "LOW" }
+  .siem_category = "CLOUD_AUDIT"
+  .timestamp_iso = to_timestamp!(.timeUnixNano, unit: "nanoseconds")
+'''`
+    }
+  ],
+  links:[
+    {label:"STACKIT Telemetry Router docs",     url:"https://docs.stackit.cloud/products/logging-and-monitoring/telemetry-router/"},
+    {label:"STACKIT Observability product page",url:"https://www.stackit.de/en/product/stackit-observability/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"svclog": {
+  title: "STACKIT Service Logs",
+  tags:[{l:"Platform-generated",c:"orange"},{l:"Logs",c:"blue"}],
+  desc:[
+    "Beyond audit events, STACKIT's own managed services (SKE Kubernetes Engine, ObjectStorage, Networking, Managed DBs) generate operational logs that customers need for debugging — things like node provisioning events, storage I/O errors, load balancer access logs.",
+    "These are ingested by the Telemetry Router's platform source alongside audit events, and can be routed to the same customer destinations."
+  ],
+  bullets:[
+    "SKE cluster events (node ready/not ready, pod scheduling failures)",
+    "Object Storage access logs (who accessed what bucket, when)",
+    "Managed DB slow query logs",
+    "Network flow logs (future roadmap)"
+  ],
+  examples:[
+    {
+      title:"Example: SKE node event as a log record",
+      lang:"json",
+      code:`{
+  "body": "Node ske-node-3 became NotReady",
+  "attributes": {
+    "event.type":           "service_log",
+    "service.name":         "stackit-ske",
+    "k8s.cluster.name":     "prod-cluster",
+    "k8s.node.name":        "ske-node-3",
+    "k8s.node.condition":   "NotReady",
+    "k8s.node.reason":      "KubeletNotReady",
+    "stackit.project_id":   "proj-xyz789",
+    "stackit.region":       "eu-central-1"
+  },
+  "severityText": "WARN",
+  "timeUnixNano": "1711458300000000000"
+}`
+    }
+  ],
+  links:[
+    {label:"STACKIT SKE (Kubernetes Engine) docs", url:"https://docs.stackit.cloud/stackit/en/stackit-kubernetes-engine-ske-27261347.html"},
+    {label:"STACKIT Logs product page",            url:"https://docs.stackit.cloud/products/logging-and-monitoring/logs/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"src-otlp": {
+  title: "Vector SOURCE: OTLP",
+  tags:[{l:"Vector",c:"blue"},{l:"gRPC :4317",c:"green"},{l:"HTTP :4318",c:"green"}],
+  desc:[
+    "Vector's opentelemetry source accepts all three OTLP signal types — logs, metrics, and traces — over both gRPC (port 4317) and HTTP/JSON (port 4318). This is the front door for all customer application telemetry flowing into the Telemetry Router.",
+    "Each incoming OTLP request contains a ResourceSpans/ResourceMetrics/ResourceLogs batch. Vector decodes these into its internal Event representation and passes them downstream into the transform stage."
+  ],
+  bullets:[
+    "Handles all three signal types in one source — logs, metrics, traces",
+    "gRPC uses HTTP/2 multiplexing — lower latency, binary protobuf",
+    "HTTP/JSON easier to test with curl and debug proxies",
+    "mTLS supported for secure customer-to-router communication",
+    "End-to-end acknowledgements: source won't ACK until sink confirms delivery"
+  ],
+  examples:[
+    {
+      title:"Vector TOML — opentelemetry source",
+      lang:"toml",
+      code:`[sources.otlp_in]
+type = "opentelemetry"
+
+# gRPC endpoint — standard OTLP port
+grpc.address = "0.0.0.0:4317"
+
+# HTTP/JSON endpoint — standard OTLP port
+http.address = "0.0.0.0:4318"
+
+# Uncomment for mTLS (recommended in production)
+# tls.enabled = true
+# tls.ca_file   = "/etc/certs/ca.pem"
+# tls.crt_file  = "/etc/certs/server.pem"
+# tls.key_file  = "/etc/certs/server.key"
+
+# Note: this source emits log, metric, and trace events
+# They are tagged with .metadata.datatype = "Log"|"Metric"|"Trace"
+# You can route them separately downstream with route transform`
+    },
+    {
+      title:"Vector — routing different signal types to different transforms",
+      lang:"toml",
+      code:`# Split OTLP stream by signal type for separate handling
+[transforms.route_signals]
+type  = "route"
+inputs = ["otlp_in"]
+
+route.logs    = '.metadata.datatype == "Log"'
+route.metrics = '.metadata.datatype == "Metric"'
+route.traces  = '.metadata.datatype == "Trace"'
+
+# Each route gets its own VRL transform
+[transforms.process_logs]
+type   = "remap"
+inputs = ["route_signals.logs"]
+source = '''
+  .stackit_ingested_at = now()
+  # redact PII from log bodies
+  .body = replace(string!(.body), r'\b[\w.]+@[\w.]+\b', "[EMAIL]")
+'''
+
+[transforms.process_metrics]
+type   = "remap"
+inputs = ["route_signals.metrics"]
+source = '''
+  # Add project context to all metrics
+  .resource.attributes.stackit_project_id = get_env_var!("PROJECT_ID")
+'''
+
+[transforms.process_traces]
+type   = "remap"
+inputs = ["route_signals.traces"]
+source = '''
+  # Drop health check spans
+  if .name == "GET /healthz" || .name == "GET /ready" {
+    abort
+  }
+'''`
+    }
+  ],
+  links:[
+    {label:"Vector opentelemetry source docs", url:"https://vector.dev/docs/reference/configuration/sources/opentelemetry/"},
+    {label:"OTLP specification",               url:"https://opentelemetry.io/docs/specs/otlp/"},
+    {label:"Vector end-to-end acknowledgements", url:"https://vector.dev/docs/about/under-the-hood/architecture/end-to-end-acknowledgements/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"src-audit": {
+  title: "Vector SOURCE: STACKIT Audit Ingest",
+  tags:[{l:"Vector",c:"blue"},{l:"Platform internal",c:"orange"},{l:"Audit logs",c:"red"}],
+  desc:[
+    "This source handles STACKIT platform-generated events (audit logs, service logs) rather than customer application OTLP. Internally, STACKIT services push these events directly into the Telemetry Router — bypassing the customer's application layer.",
+    "The K8s Operator configures which platform sources are enabled per customer project. When a customer enables 'Audit Logs' in the Telemetry Router, the operator updates the Vector config to include this source binding for their project."
+  ],
+  examples:[
+    {
+      title:"Conceptual: Platform-push source (HTTP source + auth)",
+      lang:"toml",
+      code:`# STACKIT platform services push audit events via authenticated HTTP
+[sources.platform_audit]
+type = "http_server"
+address = "0.0.0.0:9001"
+decoding.codec = "json"
+
+# Only accept events from STACKIT internal services
+auth.strategy = "bearer"
+auth.token    = "\${PLATFORM_INGEST_TOKEN}"
+
+# Each event arrives as a JSON body matching OTLP LogRecord schema
+# The VRL transform normalises it into the same event shape as otlp_in
+
+[transforms.normalise_audit]
+type   = "remap"
+inputs = ["platform_audit"]
+source = '''
+  # Tag as audit for downstream routing rules
+  .attributes.event_type     = "audit"
+  .attributes.stackit_source = "platform"
+  # Validate EU region compliance
+  assert!(
+    starts_with(string!(.attributes.stackit_region), "eu-"),
+    message: "Non-EU audit event rejected"
+  )
+'''`
+    }
+  ],
+  links:[
+    {label:"Vector http_server source",           url:"https://vector.dev/docs/reference/configuration/sources/http_server/"},
+    {label:"STACKIT Telemetry Router — Audit Logs", url:"https://docs.stackit.cloud/products/logging-and-monitoring/telemetry-router/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"vrl": {
+  title: "Vector TRANSFORM: VRL",
+  tags:[{l:"Vector",c:"blue"},{l:"VRL",c:"purple"},{l:"PII redaction",c:"red"},{l:"Enrichment",c:"green"}],
+  desc:[
+    "VRL (Vector Remap Language) is a purpose-built, safe scripting language for transforming observability events. It's Turing-incomplete by design — no infinite loops, no I/O side effects, predictable execution time. Every expression returns a value or an error that must be handled.",
+    "In the Telemetry Router, VRL programs are what customers configure to shape their data before it hits any sink. This is where PII redaction, field enrichment, sovereignty compliance checks, and routing logic all live."
+  ],
+  bullets:[
+    "Type-safe: every operation handles error paths explicitly (! suffix = assert non-null)",
+    "'abort' exits the program and drops the event — use for filtering",
+    "No network calls, no filesystem — purely functional transforms",
+    "Compiled at startup — runtime errors are panics, not crashes (event is dropped)",
+    "Regex support via r'...' literals — JIT compiled by PCRE2",
+    "Common pain point: complex nested OTLP attribute access is verbose"
+  ],
+  examples:[
+    {
+      title:"VRL — PII redaction + enrichment (production pattern)",
+      lang:"toml",
+      code:`[transforms.pii_and_enrich]
+type   = "remap"
+inputs = ["route_signals.logs"]
+source = '''
+  # ── PII Redaction ──────────────────────────────────
+  # Scrub emails from log body
+  body = string!(.body)
+  .body = replace(body, r'\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b', "[EMAIL]")
+
+  # Scrub IPv4 addresses
+  .body = replace(string!(.body), r'\b(?:\d{1,3}\.){3}\d{1,3}\b', "[IP]")
+
+  # Remove authorization headers from HTTP spans
+  if exists(.attributes."http.request.header.authorization") {
+    del(.attributes."http.request.header.authorization")
+  }
+
+  # ── EU Sovereignty Check ────────────────────────────
+  region = string(.resource.attributes."stackit.region") ?? ""
+  if !starts_with(region, "eu-") {
+    abort   # Drop non-EU events — never reaches a sink
+  }
+
+  # ── Enrichment ──────────────────────────────────────
+  # Add ingestion timestamp
+  .attributes."telemetry_router.ingested_at" = to_string(now())
+
+  # Derive log level if not set
+  if !exists(.severity_text) {
+    .severity_text = if match(string!(.body), r'(?i)error|exception|fatal') {
+      "ERROR"
+    } else if match(string!(.body), r'(?i)warn') {
+      "WARN"
+    } else {
+      "INFO"
+    }
+  }
+
+  # ── Cost control: drop debug logs going to expensive sinks ──
+  if .severity_text == "DEBUG" || .severity_text == "TRACE" {
+    abort
+  }
+'''`
+    },
+    {
+      title:"VRL — Routing fan-out (send to multiple sinks selectively)",
+      lang:"toml",
+      code:`# Route errors to SIEM + Observability, info logs only to S3
+[transforms.route_by_severity]
+type  = "route"
+inputs = ["pii_and_enrich"]
+
+route.errors      = '.severity_text == "ERROR" || .severity_text == "FATAL"'
+route.all_to_s3   = 'true'   # everything goes to archive
+
+# SIEM only gets errors
+[sinks.siem]
+inputs = ["route_by_severity.errors"]
+type   = "opentelemetry"
+endpoint = "https://siem.company.com:4317"
+
+# S3 gets everything
+[sinks.archive]
+inputs = ["route_by_severity.all_to_s3"]
+type   = "aws_s3"
+bucket = "telemetry-archive"`
+    },
+    {
+      title:"VRL — Metrics transform (add labels for Prometheus)",
+      lang:"toml",
+      code:`[transforms.enrich_metrics]
+type   = "remap"
+inputs = ["route_signals.metrics"]
+source = '''
+  # Add standard labels expected by Prometheus/Grafana recording rules
+  .tags.env         = string(.resource.attributes."deployment.environment") ?? "unknown"
+  .tags.service     = string(.resource.attributes."service.name") ?? "unknown"
+  .tags.project_id  = string(.resource.attributes."stackit.project_id") ?? "unknown"
+
+  # Drop cardinality-explosion metrics (unique IDs as labels)
+  for_each(object!(.tags)) -> |key, value| {
+    if key == "user_id" || key == "request_id" || key == "trace_id" {
+      del(.tags[key])
+    }
+  }
+'''`
+    }
+  ],
+  links:[
+    {label:"VRL reference docs",              url:"https://vector.dev/docs/reference/vrl/"},
+    {label:"VRL functions reference",         url:"https://vector.dev/docs/reference/vrl/functions/"},
+    {label:"VRL error handling guide",        url:"https://vector.dev/docs/reference/vrl/errors/"},
+    {label:"VRL playground (browser)",        url:"https://playground.vrl.dev/"},
+    {label:"Poison payloads in Vector (blog)", url:"https://wolfman.dev/posts/vector-poison-payloads/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"buffer": {
+  title: "Vector BUFFER — Backpressure & Durability",
+  tags:[{l:"Vector",c:"blue"},{l:"Backpressure",c:"red"},{l:"Durability",c:"orange"},{l:"⚠ Hardest problem",c:"red"}],
+  desc:[
+    "Buffers sit between the transform stage and each sink. When a sink slows down (network congestion, SIEM overload, S3 throttling), the buffer absorbs the spike. If the buffer fills, backpressure propagates upstream: the transform stops processing, the source stops ACKing OTLP requests, and the client starts seeing 429s or connection stalls.",
+    "This is the hardest engineering problem in the role. In a multi-tenant setup, one customer's bad sink can pressure other customers' pipelines unless each customer has isolated buffer/sink processes. The K8s operator decides whether to share a Vector process (cost-efficient) or isolate per customer (fault-isolated)."
+  ],
+  bullets:[
+    "Memory buffer: fast, not durable — lost on Vector crash",
+    "Disk buffer: durable write-ahead log, survives restarts — but ~4x slower throughput",
+    "Known issue: disk buffer can drop Vector from 500MB/s to 120MB/s (even when disk isn't the bottleneck — mutex contention in the WAL)",
+    "Best practice: memory buffer with overflow-to-disk for production",
+    "Per-sink buffers: each sink has its own buffer — one slow sink doesn't block others",
+    "End-to-end ACKs: source waits for sink confirmation before ACKing OTLP client"
+  ],
+  examples:[
+    {
+      title:"Vector buffer config — production pattern (per-sink)",
+      lang:"toml",
+      code:`# Each sink declares its own buffer independently
+# This means a slow SIEM doesn't block the S3 archive
+
+[sinks.siem_otlp]
+type     = "opentelemetry"
+inputs   = ["pii_and_enrich"]
+endpoint = "https://siem.company.com:4317"
+
+  # Memory buffer first, overflow to disk
+  [sinks.siem_otlp.buffer]
+  type              = "memory"
+  max_events        = 50000
+  when_full         = "overflow"     # overflow to disk instead of blocking
+
+  [[sinks.siem_otlp.buffer.overflow]]
+  type     = "disk"
+  max_size = 10_737_418_240          # 10 GiB
+  when_full = "drop_newest"          # last resort: drop rather than stall source
+
+[sinks.s3_archive]
+type   = "aws_s3"
+inputs = ["pii_and_enrich"]
+bucket = "telemetry-archive"
+
+  # S3 can tolerate more latency — disk buffer is fine
+  [sinks.s3_archive.buffer]
+  type      = "disk"
+  max_size  = 53_687_091_200         # 50 GiB
+  when_full = "block"                # apply backpressure — don't lose compliance data`
+    },
+    {
+      title:"Understanding backpressure propagation",
+      lang:"toml",
+      code:`# When backpressure propagates:
+#
+#  OTLP Client (app)
+#       |
+#       | → sends OTLP request
+#       |
+#  Vector SOURCE (otlp_in)
+#       | ← backpressure: stop ACKing new requests → client gets UNAVAILABLE
+#       |
+#  Vector TRANSFORM (VRL)
+#       | ← backpressure: transform queue full, pause processing
+#       |
+#  Vector BUFFER (per-sink)
+#       | ← buffer full (disk or memory exhausted)
+#       |
+#  Vector SINK (e.g. SIEM)
+#       | ← SIEM returns 429 / connection timeout
+#
+# Fix strategies (in order of preference):
+#   1. Per-sink isolation: buffer fills independently, doesn't affect other sinks
+#   2. Drop policy on non-critical sinks: abort low-priority events under pressure
+#   3. Separate Vector process per customer (operator creates one Deployment per project)
+#   4. Horizontal scaling: multiple Vector replicas with consistent hashing on customer_id
+
+[transforms.drop_on_pressure]
+type   = "remap"
+inputs = ["route_signals.logs"]
+source = '''
+  # Under high load, only keep ERROR+ logs for expensive sinks
+  # INFO/DEBUG go only to cheap S3 archive
+  .sink_tier = if .severity_text == "ERROR" || .severity_text == "FATAL" {
+    "premium"
+  } else {
+    "archive_only"
+  }
+'''`
+    }
+  ],
+  links:[
+    {label:"Vector buffering model docs",          url:"https://vector.dev/docs/architecture/buffering-model/"},
+    {label:"Vector high availability guide",       url:"https://vector.dev/docs/setup/going-to-prod/high-availability/"},
+    {label:"Disk buffer backpressure issue #23783", url:"https://github.com/vectordotdev/vector/issues/23783"},
+    {label:"DD: Buffering and Backpressure guide",  url:"https://docs.datadoghq.com/observability_pipelines/scaling_and_performance/buffering_and_backpressure/"},
+    {label:"Vector sizing and capacity planning",   url:"https://vector.dev/docs/setup/going-to-prod/sizing/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"sink-otlp": {
+  title: "SINK: OTLP — External Customer Backend",
+  tags:[{l:"Vector sink",c:"purple"},{l:"OTLP/gRPC",c:"blue"},{l:"Fan-out",c:"green"}],
+  desc:[
+    "The OTLP sink ships events to any OTLP-compatible backend: Datadog, Splunk, New Relic, Grafana Cloud, SigNoz, a customer's self-hosted Tempo/Loki, etc. This is the key to the Telemetry Router's vendor-neutral design — the customer declares a destination endpoint; the router handles the rest.",
+    "STACKIT never stores the data in this path — it flows through the router and directly to the customer's chosen backend. This satisfies data sovereignty requirements for customers who want their telemetry in their own infrastructure, not STACKIT's."
+  ],
+  examples:[
+    {
+      title:"Vector TOML — OTLP sink to external backend",
+      lang:"toml",
+      code:`[sinks.customer_siem]
+type    = "opentelemetry"
+inputs  = ["pii_and_enrich"]
+
+# Customer's OTLP-compatible endpoint (Datadog, Splunk, etc.)
+endpoint = "https://ingest.siem.company.com:4317"
+
+# Auth header stored in k8s Secret, injected as env var by operator
+request.headers.Authorization = "Bearer \${SIEM_API_KEY}"
+
+# Retry configuration
+request.retry_attempts         = 10
+request.retry_max_duration_secs = 300
+
+# Batching — balance latency vs throughput
+batch.max_events = 1000
+batch.timeout_secs = 5
+
+# Compression reduces egress cost (~60-80% smaller)
+compression = "gzip"
+
+  [sinks.customer_siem.buffer]
+  type      = "memory"
+  max_events = 100000
+  when_full  = "overflow"
+
+  [[sinks.customer_siem.buffer.overflow]]
+  type      = "disk"
+  max_size  = 10_737_418_240`
+    },
+    {
+      title:"TelemetryRouter CRD — customer declares OTLP destination",
+      lang:"yaml",
+      code:`# This is what a customer configures via STACKIT API/UI
+# The K8s operator translates this into the Vector TOML above
+spec:
+  destinations:
+    - name: "production-siem"
+      type: OTLP
+      otlpEndpoint: "https://ingest.siem.company.com:4317"
+      # Secret created separately: kubectl create secret generic siem-key --from-literal=token=xxx
+      secretRef: "siem-api-key"
+      tls:
+        enabled: true
+      filters:
+        - severityMin: ERROR    # Only route errors to expensive SIEM
+      compression: gzip`
+    }
+  ],
+  links:[
+    {label:"Vector opentelemetry sink docs",  url:"https://vector.dev/docs/reference/configuration/sinks/opentelemetry/"},
+    {label:"OTLP spec — exporters",           url:"https://opentelemetry.io/docs/specs/otlp/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"sink-obs": {
+  title: "SINK: STACKIT Observability (Argus)",
+  tags:[{l:"Vector sink",c:"purple"},{l:"Loki · Tempo · Prometheus",c:"blue"},{l:"Managed Grafana",c:"green"}],
+  desc:[
+    "STACKIT Observability (formerly Argus) is a fully managed LGTM stack: Loki (logs), Tempo (traces), Prometheus + Thanos (metrics), and Grafana for visualization. When customers route to this sink, their data lands in STACKIT-managed backends that are already connected to a provisioned Grafana instance.",
+    "Customers don't manage the Grafana stack — STACKIT handles upgrades, HA, storage scaling. Data stays in EU datacenters."
+  ],
+  examples:[
+    {
+      title:"Vector TOML — sink to STACKIT Observability endpoints",
+      lang:"toml",
+      code:`# Logs → Loki (via HTTP push)
+[sinks.argus_loki]
+type   = "loki"
+inputs = ["route_by_severity.logs"]
+
+endpoint = "https://logs.observability.my-instance.stackit.cloud"
+auth.strategy = "basic"
+auth.user     = "\${ARGUS_USERNAME}"
+auth.password = "\${ARGUS_PASSWORD}"
+
+# Loki labels — must be low cardinality!
+labels.service    = "{{ "{{" }} .resource.attributes.service_name {{ "}}" }}"
+labels.env        = "{{ "{{" }} .attributes.env {{ "}}" }}"
+labels.project_id = "{{ "{{" }} .resource.attributes.stackit_project_id {{ "}}" }}"
+
+encoding.codec = "json"
+
+# Traces → Tempo (via OTLP)
+[sinks.argus_tempo]
+type     = "opentelemetry"
+inputs   = ["route_by_severity.traces"]
+endpoint = "https://traces.observability.my-instance.stackit.cloud:4317"
+request.headers.Authorization = "Basic \${ARGUS_BASIC_AUTH_B64}"
+
+# Metrics → Prometheus remote_write (push)
+[sinks.argus_prometheus]
+type    = "prometheus_remote_write"
+inputs  = ["route_by_severity.metrics"]
+endpoint = "https://metrics.observability.my-instance.stackit.cloud/api/v1/push"
+auth.strategy = "basic"
+auth.user     = "\${ARGUS_USERNAME}"
+auth.password = "\${ARGUS_PASSWORD}"`
+    },
+    {
+      title:"Grafana — query Loki logs from Observability",
+      lang:"yaml",
+      code:`# Grafana dashboard query examples after data lands in Argus
+
+# LogQL — show errors from my-api in last 1h:
+{service="my-api", env="production"} |= "ERROR" | json
+
+# LogQL — count error rate per service:
+sum by (service) (
+  rate({env="production"} |= "ERROR" [5m])
+)
+
+# TraceQL — find slow traces in Tempo:
+{ .service.name="my-api" && duration > 500ms }
+
+# Prometheus — query latency p99:
+histogram_quantile(0.99,
+  sum by (le, service) (
+    rate(http_request_duration_seconds_bucket{env="production"}[5m])
+  )
+)`
+    }
+  ],
+  links:[
+    {label:"STACKIT Observability product page",      url:"https://www.stackit.de/en/product/stackit-observability/"},
+    {label:"STACKIT: How to collect logs with Argus",  url:"https://techblog.schwarz/posts/how-to-write-and-visualize-logs-with-argus/"},
+    {label:"STACKIT: Ship OTel data to Observability", url:"https://docs.stackit.cloud/stackit/en/how-to-ship-traces-logs-and-metrics-to-argus-using-opentelemetry-146276901.html"},
+    {label:"Vector Loki sink docs",                    url:"https://vector.dev/docs/reference/configuration/sinks/loki/"},
+    {label:"Grafana Loki LogQL reference",             url:"https://grafana.com/docs/loki/latest/query/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"sink-s3": {
+  title: "SINK: S3 — Object Storage Archive",
+  tags:[{l:"Vector sink",c:"purple"},{l:"Compliance archive",c:"orange"},{l:"STACKIT Object Storage",c:"blue"}],
+  desc:[
+    "The S3 sink writes events to STACKIT Object Storage (S3-compatible) in batched, compressed files. This is primarily used for long-term compliance archival — keeping audit logs for 7+ years as required by financial and GDPR regulations. Cost is very low vs. streaming backends.",
+    "Objects are partitioned by date/hour prefix for efficient querying. Customers can query these with Athena-style tools or pull back into an analysis pipeline later."
+  ],
+  examples:[
+    {
+      title:"Vector TOML — S3 sink to STACKIT Object Storage",
+      lang:"toml",
+      code:`[sinks.compliance_archive]
+type   = "aws_s3"
+inputs = ["pii_and_enrich"]
+
+# STACKIT Object Storage is S3-compatible
+endpoint = "https://object.storage.eu-central-1.stackit.cloud"
+bucket   = "audit-archive-prod"
+region   = "eu-central-1"
+
+# Path partitioned by date for efficient range queries
+key_prefix = "audit/year={{ "{{" }}%Y{{ "}}" }}/month={{ "{{" }}%m{{ "}}" }}/day={{ "{{" }}%d{{ "}}" }}/hour={{ "{{" }}%H{{ "}}" }}/"
+filename_time_format = "%s"
+filename_append_uuid = true
+
+# Compress to reduce storage costs (~70-80% reduction for log data)
+compression = "gzip"
+
+# Batch: write larger files less frequently (better for object storage)
+batch.max_bytes    = 104_857_600   # 100 MiB per file
+batch.timeout_secs = 300           # or every 5 minutes
+
+encoding.codec = "ndjson"          # newline-delimited JSON — queryable
+
+auth.access_key_id     = "\${S3_ACCESS_KEY}"
+auth.secret_access_key = "\${S3_SECRET_KEY}"
+
+  # Disk buffer — compliance data must not be lost
+  [sinks.compliance_archive.buffer]
+  type      = "disk"
+  max_size  = 53_687_091_200   # 50 GiB
+  when_full = "block"          # apply backpressure, never drop`
+    },
+    {
+      title:"Resulting S3 object structure",
+      lang:"bash",
+      code:`# Files land here — queryable with AWS Athena or DuckDB
+audit/year=2026/month=03/day=26/hour=14/
+  1711454400-a3f9b2c1.ndjson.gz   # ~100MB compressed
+  1711454700-b8e1d4a2.ndjson.gz
+
+# Query with DuckDB (ad-hoc compliance investigation):
+SELECT
+  json_extract_string(json, '$.attributes.actor_email')  AS actor,
+  json_extract_string(json, '$.attributes.event_action') AS action,
+  json_extract_string(json, '$.body')                    AS description,
+  json_extract_string(json, '$.timeUnixNano')            AS ts
+FROM read_ndjson_auto(
+  's3://audit-archive-prod/audit/year=2026/month=03/**/*.ndjson.gz'
+)
+WHERE json_extract_string(json, '$.attributes.event_outcome') = 'failure'
+ORDER BY ts DESC
+LIMIT 100;`
+    }
+  ],
+  links:[
+    {label:"STACKIT Object Storage docs",    url:"https://docs.stackit.cloud/stackit/en/stackit-object-storage-15472430.html"},
+    {label:"Vector aws_s3 sink docs",        url:"https://vector.dev/docs/reference/configuration/sinks/aws_s3/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"sink-logme": {
+  title: "SINK: STACKIT LogMe (OpenSearch)",
+  tags:[{l:"Vector sink",c:"purple"},{l:"OpenSearch",c:"blue"},{l:"Full-text search",c:"green"}],
+  desc:[
+    "STACKIT LogMe is a managed OpenSearch service — think of it as managed Elasticsearch. It's suited for customers who want ELK-style full-text log search and dashboards (OpenSearch Dashboards), as opposed to the Loki/Grafana approach in Observability.",
+    "Vector ships to it via the HTTP sink using OpenSearch's bulk ingest API. Each document in the index corresponds to a log event."
+  ],
+  examples:[
+    {
+      title:"Vector TOML — Elasticsearch/OpenSearch HTTP sink",
+      lang:"toml",
+      code:`[sinks.logme_opensearch]
+type    = "elasticsearch"
+inputs  = ["pii_and_enrich"]
+
+# STACKIT LogMe endpoint (OpenSearch-compatible)
+endpoints = ["https://my-instance.logme.eu-central-1.stackit.cloud:9200"]
+
+# Index name with date rotation
+bulk.index = "telemetry-{{ "{{" }}%Y.%m.%d{{ "}}" }}"
+
+auth.strategy = "basic"
+auth.user     = "\${LOGME_USER}"
+auth.password = "\${LOGME_PASSWORD}"
+
+# Map Vector fields to OpenSearch document fields
+encoding.codec = "json"
+
+# Suppress OpenSearch version check (LogMe compatibility)
+suppress_type_name = true
+
+  [sinks.logme_opensearch.buffer]
+  type       = "memory"
+  max_events = 50000
+  when_full  = "overflow"
+
+  [[sinks.logme_opensearch.buffer.overflow]]
+  type     = "disk"
+  max_size = 5_368_709_120   # 5 GiB`
+    },
+    {
+      title:"OpenSearch Dashboards — KQL query examples",
+      lang:"bash",
+      code:`# OpenSearch / Kibana Query Language examples for LogMe
+
+# Find all ERROR logs from my-api today:
+service_name: "my-api" AND severity_text: "ERROR"
+
+# Find logs matching a trace ID:
+trace_id: "abc123def456"
+
+# Find audit events for a specific user:
+attributes.actor_email: "admin@company.de" AND attributes.event_type: "audit"
+
+# Time-range + severity:
+severity_text: ("ERROR" OR "FATAL") AND @timestamp: [now-1h TO now]
+
+# OpenSearch SQL alternative:
+SELECT body, attributes.actor_email, timestamp
+FROM telemetry-2026.*
+WHERE attributes.event_outcome = 'failure'
+ORDER BY timestamp DESC
+LIMIT 50`
+    }
+  ],
+  links:[
+    {label:"STACKIT LogMe product page",     url:"https://docs.stackit.cloud/products/logging-and-monitoring/logme/"},
+    {label:"Vector elasticsearch sink docs", url:"https://vector.dev/docs/reference/configuration/sinks/elasticsearch/"},
+    {label:"OpenSearch KQL reference",       url:"https://opensearch.org/docs/latest/query-dsl/full-text/match/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"operator": {
+  title: "K8s Operator — TelemetryRouter CRD",
+  tags:[{l:"Go",c:"blue"},{l:"controller-runtime",c:"purple"},{l:"CRD",c:"green"},{l:"What you'd build",c:"red"}],
+  desc:[
+    "The K8s operator is the control plane glue between customer intent (a TelemetryRouter CRD) and Vector reality (a running deployment with a specific TOML config). Written in Go using controller-runtime, it watches CRD objects and reconciles the world to match.",
+    "This is the most interesting engineering surface in the role: writing the reconcile loop, handling upgrades without dropping events, detecting config drift, managing per-customer Vector deployments, and writing health status back to the CRD."
+  ],
+  bullets:[
+    "Pattern: observe → diff → act → requeue",
+    "Renders Vector TOML from CRD spec (Go templates or structured generation)",
+    "Stores rendered TOML in a ConfigMap — Vector Deployment mounts it",
+    "Rolling update strategy: drain old Vector pod, start new with updated config",
+    "Finalizer: prevents CRD deletion until in-flight events are flushed",
+    "Status subresource: writes readyReplicas, vectorConfigHash, conditions back to CRD"
+  ],
+  examples:[
+    {
+      title:"TelemetryRouter CRD — what a customer creates",
+      lang:"yaml",
+      code:`apiVersion: telemetry.stackit.cloud/v1alpha1
+kind: TelemetryRouter
+metadata:
+  name: prod-router
+  namespace: stackit-telemetry-proj-xyz789
+  finalizers:
+    - telemetry.stackit.cloud/drain-finalizer
+spec:
+  projectId:  "proj-xyz789"
+  region:     "eu-central-1"
+  replicas:   2
+  allowNonEU: false
+
+  sources:
+    - type: OTLP
+    - type: AUDIT_LOGS
+
+  transforms:
+    - name: pii-redact
+      vrl: |
+        .body = replace(string!(.body), r'\b[\w.]+@[\w.]+\b', "[EMAIL]")
+        if !starts_with(string(.resource.attributes.stackit_region) ?? "", "eu-") {
+          abort
+        }
+
+  destinations:
+    - name: "siem"
+      type: OTLP
+      otlpEndpoint: "https://ingest.siem.company.com:4317"
+      secretRef:    "siem-api-key"
+    - name: "archive"
+      type: S3
+      s3Bucket:       "audit-archive-prod"
+      s3BucketRegion: "eu-central-1"
+      s3Endpoint:     "https://object.storage.eu-central-1.stackit.cloud"
+      secretRef:      "s3-credentials"
+
+status:
+  phase:            Ready
+  vectorConfigHash: "a3f9b2c1d4e5"
+  readyReplicas:    2
+  lastReconcileAt:  "2026-03-26T14:00:00Z"
+  conditions:
+    - type:   RegionCompliant
+      status: "True"
+    - type:   SecretsResolved
+      status: "True"`
+    },
+    {
+      title:"Go — Reconcile loop skeleton (controller-runtime)",
+      lang:"go",
+      code:`// internal/controller/telemetryrouter_controller.go
+package controller
+
+import (
+    "context"
+    "crypto/sha256"
+    "fmt"
+
+    telemetryv1 "github.com/stackit/telemetry-router/api/v1alpha1"
+    corev1 "k8s.io/api/core/v1"
+    ctrl "sigs.k8s.io/controller-runtime"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+type TelemetryRouterReconciler struct {
+    client.Client
+}
+
+func (r *TelemetryRouterReconciler) Reconcile(
+    ctx context.Context, req ctrl.Request,
+) (ctrl.Result, error) {
+    log := ctrl.LoggerFrom(ctx)
+
+    // 1. Fetch the TelemetryRouter object
+    var tr telemetryv1.TelemetryRouter
+    if err := r.Get(ctx, req.NamespacedName, &tr); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+
+    // 2. Handle deletion (drain finalizer)
+    if !tr.DeletionTimestamp.IsZero() {
+        return r.handleDeletion(ctx, &tr)
+    }
+
+    // 3. Render Vector TOML config from spec
+    vectorCfg, err := renderVectorConfig(&tr)
+    if err != nil {
+        return ctrl.Result{}, r.setCondition(ctx, &tr, "ConfigRendered", false, err.Error())
+    }
+    cfgHash := fmt.Sprintf("%x", sha256.Sum256([]byte(vectorCfg)))[:12]
+
+    // 4. Reconcile ConfigMap
+    if err := r.reconcileConfigMap(ctx, &tr, vectorCfg); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    // 5. Reconcile Deployment (rolling update if hash changed)
+    if err := r.reconcileDeployment(ctx, &tr, cfgHash); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    // 6. Update status
+    tr.Status.VectorConfigHash = cfgHash
+    tr.Status.Phase = "Ready"
+    return ctrl.Result{}, r.Status().Update(ctx, &tr)
+}
+
+func renderVectorConfig(tr *telemetryv1.TelemetryRouter) (string, error) {
+    // Build Vector TOML programmatically from CRD spec
+    cfg := &vectorConfig{}
+    cfg.addOTLPSource("otlp_in", ":4317", ":4318")
+    for _, transform := range tr.Spec.Transforms {
+        cfg.addVRLTransform(transform.Name, transform.VRL)
+    }
+    for _, dest := range tr.Spec.Destinations {
+        cfg.addSink(dest)
+    }
+    return cfg.render(), nil
+}`
+    }
+  ],
+  links:[
+    {label:"controller-runtime docs",              url:"https://pkg.go.dev/sigs.k8s.io/controller-runtime"},
+    {label:"Kubebuilder book — reconcile patterns", url:"https://book.kubebuilder.io/cronjob-tutorial/controller-implementation"},
+    {label:"Writing k8s operators in Go",           url:"https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"},
+    {label:"Study: k8s-operator-deep-dive.md",      url:"../k8s-operator-deep-dive.md"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"api": {
+  title: "STACKIT REST API — Control Plane",
+  tags:[{l:"Go",c:"blue"},{l:"REST",c:"green"},{l:"What you'd build",c:"red"}],
+  desc:[
+    "The REST API is the customer-facing interface for managing Telemetry Routers. Customers call it directly or via the STACKIT Console UI. Under the hood, each API call results in a CRD create/update which the K8s operator then reconciles.",
+    "This is an async API — creating a router returns 202 Accepted immediately; the actual Vector deployment happens async via the operator reconcile loop. Customers poll a task status endpoint or watch the router's status.phase field."
+  ],
+  examples:[
+    {
+      title:"REST API — create a Telemetry Router",
+      lang:"bash",
+      code:`# POST /v1/projects/{projectId}/telemetry-routers
+curl -X POST https://telemetry-router.api.stackit.cloud/v1/projects/proj-xyz789/telemetry-routers \\
+  -H "Authorization: Bearer $STACKIT_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name":    "prod-router",
+    "region":  "eu-central-1",
+    "replicas": 2,
+    "sources": ["OTLP", "AUDIT_LOGS"],
+    "transforms": [
+      {
+        "name": "pii-redact",
+        "vrl":  ".body = replace(string!(.body), r\\\"\\\\b[\\\\w.]+@[\\\\w.]+\\\\b\\\", \\"[EMAIL]\\")"
+      }
+    ],
+    "destinations": [
+      {
+        "name":         "siem",
+        "type":         "OTLP",
+        "otlpEndpoint": "https://ingest.siem.company.com:4317",
+        "secretRef":    "siem-api-key"
+      }
+    ]
+  }'
+
+# Response: 202 Accepted
+{
+  "routerId":  "tr-a3f9b2c1",
+  "status":    "PROVISIONING",
+  "taskId":    "task-xyz123",
+  "createdAt": "2026-03-26T14:00:00Z"
+}`
+    },
+    {
+      title:"REST API — poll router status",
+      lang:"bash",
+      code:`# GET /v1/projects/{projectId}/telemetry-routers/{routerId}
+curl https://telemetry-router.api.stackit.cloud/v1/projects/proj-xyz789/telemetry-routers/tr-a3f9b2c1 \\
+  -H "Authorization: Bearer $STACKIT_TOKEN"
+
+# Response when ready:
+{
+  "routerId":        "tr-a3f9b2c1",
+  "name":            "prod-router",
+  "status":          "READY",
+  "region":          "eu-central-1",
+  "readyReplicas":   2,
+  "vectorConfigHash":"a3f9b2c1",
+  "otlpEndpoints": {
+    "grpc": "telemetry-router.proj-xyz789.eu-central-1.stackit.cloud:4317",
+    "http": "telemetry-router.proj-xyz789.eu-central-1.stackit.cloud:4318"
+  },
+  "createdAt": "2026-03-26T14:00:00Z",
+  "updatedAt": "2026-03-26T14:00:45Z"
+}
+
+# PUT /v1/projects/{projectId}/telemetry-routers/{routerId}/destinations
+# Add or update a destination — returns 202, operator reconciles async
+curl -X PUT .../destinations/siem \\
+  -d '{"otlpEndpoint": "https://new-siem.company.com:4317"}'`
+    }
+  ],
+  links:[
+    {label:"STACKIT Telemetry Router API reference", url:"https://docs.stackit.cloud/products/logging-and-monitoring/telemetry-router/"},
+    {label:"STACKIT API authentication",             url:"https://docs.stackit.cloud/stackit/en/authentication-for-stackit-apis-28438380.html"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"argus": {
+  title: "STACKIT Observability — Managed LGTM Stack",
+  tags:[{l:"Grafana",c:"orange"},{l:"Loki",c:"blue"},{l:"Tempo",c:"purple"},{l:"Prometheus + Thanos",c:"green"}],
+  desc:[
+    "STACKIT Observability (formerly branded 'Argus') is a fully managed observability backend. STACKIT operates the entire LGTM stack so customers don't have to. A customer provisions an Observability instance and immediately gets a Grafana UI, a Loki log store, a Tempo trace store, and a Prometheus/Thanos metrics backend.",
+    "Critically: this is NOT a custom in-house tool. STACKIT curates and operates best-in-class open source. The Telemetry Router routes data into it; Grafana is the visualization layer customers interact with."
+  ],
+  bullets:[
+    "Grafana — dashboards, alerting, Explore, correlations across logs/traces/metrics",
+    "Loki — log aggregation with LogQL; stores compressed log chunks in object storage",
+    "Tempo — distributed trace storage; backend for Grafana Traces view",
+    "Prometheus + Thanos — metrics; Thanos handles long-term storage and multi-tenant query",
+    "Alertmanager — alert routing (supports PagerDuty, Opsgenie, Slack, Google Chat)",
+    "SSO via STACKIT IAM — no separate Grafana users to manage"
+  ],
+  examples:[
+    {
+      title:"Prometheus ServiceMonitor — metrics scraping in SKE",
+      lang:"yaml",
+      code:`# Tell STACKIT Observability to scrape your app's /metrics endpoint
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-api-metrics
+  namespace: my-app
+  labels:
+    # This label is required for Argus/Observability scrape discovery
+    prometheus: stackit-observability
+spec:
+  selector:
+    matchLabels:
+      app: my-api
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      # Optional: basic auth if your /metrics is protected
+      # basicAuth:
+      #   username: {name: metrics-auth, key: username}
+      #   password: {name: metrics-auth, key: password}
+  namespaceSelector:
+    matchNames:
+      - my-app`
+    },
+    {
+      title:"Grafana — correlate logs + traces (Explore)",
+      lang:"bash",
+      code:`# LogQL — find error logs and derive trace IDs for correlation
+{service="my-api", env="production"}
+  |= "ERROR"
+  | json
+  | line_format "{{.message}}"
+  | label_format trace_id="{{.trace_id}}"
+
+# In Grafana Explore: click a log line's trace_id →
+# automatically jumps to Tempo trace view for that trace
+
+# TraceQL — find all traces with DB errors:
+{ .service.name="my-api" }
+  | select(span.db.system, span.http.status_code)
+  | span.db.system = "postgresql" && span.http.status_code >= 500
+
+# Prometheus — RED method dashboard:
+# Request Rate:
+sum(rate(http_requests_total{env="production"}[5m])) by (service)
+# Error Rate:
+sum(rate(http_requests_total{env="production",status=~"5.."}[5m])) by (service)
+# Duration p99:
+histogram_quantile(0.99, sum by (le, service) (
+  rate(http_request_duration_seconds_bucket[5m])
+))`
+    }
+  ],
+  links:[
+    {label:"STACKIT Observability product page",       url:"https://www.stackit.de/en/product/stackit-observability/"},
+    {label:"STACKIT: Ship OTel data to Observability", url:"https://docs.stackit.cloud/stackit/en/how-to-ship-traces-logs-and-metrics-to-argus-using-opentelemetry-146276901.html"},
+    {label:"STACKIT: Logs with Argus (Promtail+Loki)", url:"https://techblog.schwarz/posts/how-to-write-and-visualize-logs-with-argus/"},
+    {label:"Grafana Loki LogQL docs",                  url:"https://grafana.com/docs/loki/latest/query/"},
+    {label:"Grafana Tempo TraceQL docs",               url:"https://grafana.com/docs/tempo/latest/traceql/"},
+    {label:"Prometheus querying basics",               url:"https://prometheus.io/docs/prometheus/latest/querying/basics/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"logme": {
+  title: "STACKIT LogMe — Managed OpenSearch",
+  tags:[{l:"OpenSearch",c:"blue"},{l:"Full-text search",c:"green"},{l:"Managed",c:"orange"}],
+  desc:[
+    "STACKIT LogMe is a managed OpenSearch (the open-source Elasticsearch fork) service. It comes with Fluentd for log collection and OpenSearch Dashboards for visualization. It's an alternative to Loki for customers who prefer SQL-style log querying, already have ELK experience, or need full-text search across large log volumes.",
+    "Data lands here via the Vector elasticsearch sink from the Telemetry Router, or directly via Fluentd/Fluent Bit agents."
+  ],
+  examples:[
+    {
+      title:"Fluent Bit — forward logs directly to LogMe",
+      lang:"ini",
+      code:`# fluent-bit.conf — DaemonSet agent reading k8s logs → LogMe
+[SERVICE]
+    Flush        5
+    Log_Level    info
+
+[INPUT]
+    Name              tail
+    Path              /var/log/containers/*.log
+    Parser            docker
+    Tag               kube.*
+    Refresh_Interval  5
+
+[FILTER]
+    Name                kubernetes
+    Match               kube.*
+    Kube_URL            https://kubernetes.default.svc:443
+    Merge_Log           On
+    K8S-Logging.Parser  On
+
+[OUTPUT]
+    Name            es
+    Match           *
+    Host            my-instance.logme.eu-central-1.stackit.cloud
+    Port            9200
+    HTTP_User       \${LOGME_USER}
+    HTTP_Passwd     \${LOGME_PASSWORD}
+    Index           fluent-bit-logs
+    Logstash_Format On
+    Logstash_Prefix k8s-logs
+    tls             On`
+    },
+    {
+      title:"OpenSearch index lifecycle policy (ILM) — auto-delete old logs",
+      lang:"json",
+      code:`PUT _plugins/_ism/policies/log-retention-90d
+{
+  "policy": {
+    "description": "Keep logs 90 days then delete",
+    "default_state": "hot",
+    "states": [
+      {
+        "name": "hot",
+        "actions": [],
+        "transitions": [
+          {
+            "state_name": "delete",
+            "conditions": {
+              "min_index_age": "90d"
+            }
+          }
+        ]
+      },
+      {
+        "name": "delete",
+        "actions": [{"delete": {}}],
+        "transitions": []
+      }
+    ],
+    "ism_template": [
+      {"index_patterns": ["k8s-logs-*"]}
+    ]
+  }
+}`
+    }
+  ],
+  links:[
+    {label:"STACKIT LogMe docs",              url:"https://docs.stackit.cloud/products/logging-and-monitoring/logme/"},
+    {label:"OpenSearch documentation",        url:"https://opensearch.org/docs/latest/"},
+    {label:"Vector elasticsearch sink",       url:"https://vector.dev/docs/reference/configuration/sinks/elasticsearch/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"s3view": {
+  title: "S3 Archive — STACKIT Object Storage",
+  tags:[{l:"Compliance",c:"red"},{l:"Long-term storage",c:"orange"},{l:"S3-compatible",c:"blue"}],
+  desc:[
+    "STACKIT Object Storage is an S3-compatible API backed by STACKIT's EU datacenters. Telemetry data archived here is immutable, cheap, and sovereign. This is the right home for: audit log compliance archives (7+ years), raw event replay/backfill, and cold storage for regulatory purposes.",
+    "Data lands as gzipped NDJSON partitioned by date prefix. Query it ad-hoc with DuckDB, re-ingest into OpenSearch for investigation, or reference it during audits."
+  ],
+  examples:[
+    {
+      title:"Query archived events with DuckDB (local analytics)",
+      lang:"sql",
+      code:`-- Install DuckDB: brew install duckdb
+-- Query STACKIT S3 archive directly (no infrastructure needed)
+
+INSTALL httpfs;
+LOAD httpfs;
+
+SET s3_endpoint   = 'object.storage.eu-central-1.stackit.cloud';
+SET s3_access_key = 'your-access-key';
+SET s3_secret_key = 'your-secret-key';
+SET s3_url_style  = 'path';
+
+-- Find all failed IAM operations in March 2026
+SELECT
+  json_extract_string(content, '$.attributes.actor_email')   AS actor,
+  json_extract_string(content, '$.attributes.event_action')  AS action,
+  json_extract_string(content, '$.attributes.target_resource_id') AS resource,
+  epoch_ms(
+    (json_extract(content, '$.timeUnixNano')::BIGINT) / 1000000
+  ) AS event_time
+FROM read_ndjson(
+  's3://audit-archive-prod/audit/year=2026/month=03/**/*.ndjson.gz',
+  columns = {content: 'VARCHAR'}
+)
+WHERE json_extract_string(content, '$.attributes.event_outcome') = 'failure'
+  AND json_extract_string(content, '$.attributes.event_action') LIKE 'iam.%'
+ORDER BY event_time DESC;`
+    }
+  ],
+  links:[
+    {label:"STACKIT Object Storage docs",  url:"https://docs.stackit.cloud/stackit/en/stackit-object-storage-15472430.html"},
+    {label:"DuckDB S3 querying guide",     url:"https://duckdb.org/docs/extensions/httpfs/s3api.html"},
+    {label:"Vector aws_s3 sink reference", url:"https://vector.dev/docs/reference/configuration/sinks/aws_s3/"},
+  ]
+},
+
+// ──────────────────────────────────────────────────────────
+"external": {
+  title: "Customer's External Tool — Datadog / Splunk / SigNoz",
+  tags:[{l:"Vendor-neutral",c:"blue"},{l:"OTLP any backend",c:"green"},{l:"Customer-owned",c:"orange"}],
+  desc:[
+    "One of the core value propositions of STACKIT Telemetry Router is that customers aren't locked into STACKIT's observability stack. If they already run Datadog, Splunk, New Relic, or a self-hosted SigNoz, they just point a destination at their OTLP endpoint and all their STACKIT platform telemetry flows there.",
+    "This is the vendor-neutral OTLP payoff: write once (OTel SDK), route anywhere (Telemetry Router), visualize your way (customer's tool)."
+  ],
+  examples:[
+    {
+      title:"TelemetryRouter destination — point to Datadog",
+      lang:"yaml",
+      code:`# CRD destination pointing to Datadog's OTLP endpoint
+spec:
+  destinations:
+    - name: "datadog"
+      type: OTLP
+      otlpEndpoint: "https://api.datadoghq.eu:443"  # EU Datadog endpoint
+      headers:
+        DD-API-KEY: "\${DATADOG_API_KEY}"
+      compression: gzip
+      filters:
+        - severityMin: WARN   # Only send warnings+ to Datadog to control cost
+
+# Translates to this Vector TOML:
+# [sinks.datadog]
+# type     = "opentelemetry"
+# endpoint = "https://api.datadoghq.eu:443"
+# request.headers.DD-API-KEY = "\${DATADOG_API_KEY}"
+# compression = "gzip"`
+    },
+    {
+      title:"TelemetryRouter destination — point to self-hosted SigNoz",
+      lang:"yaml",
+      code:`spec:
+  destinations:
+    - name: "signoz"
+      type: OTLP
+      # SigNoz exposes standard OTLP gRPC on 4317
+      otlpEndpoint: "signoz-collector.monitoring.svc.cluster.local:4317"
+      tls:
+        enabled: false   # internal cluster — no TLS needed
+
+# SigNoz then handles:
+# - Trace storage in ClickHouse
+# - Log indexing in ClickHouse
+# - Metrics in Prometheus
+# - Custom dashboards and alerting
+# All on customer's own infrastructure`
+    }
+  ],
+  links:[
+    {label:"Datadog OTLP ingestion docs",    url:"https://docs.datadoghq.com/opentelemetry/interoperability/otlp_ingest_in_the_agent/"},
+    {label:"SigNoz OTLP setup",              url:"https://signoz.io/docs/tutorial/opentelemetry-binary-usage-in-virtual-machine/"},
+    {label:"OTLP vendor compatibility list", url:"https://opentelemetry.io/ecosystem/vendors/"},
+    {label:"Vector opentelemetry sink",      url:"https://vector.dev/docs/reference/configuration/sinks/opentelemetry/"},
+  ]
+},
+
+}; // end NODE_DATA
+
+</script>
+<script>
+const arrows=[
+  {from:'n-sdk',to:'n-otelcol',label:'OTLP'},
+  {from:'n-k8slogs',to:'n-otelcol',label:'k8s logs'},
+  {from:'n-otelcol',to:'n-src-otlp',label:'OTLP gRPC/HTTP'},
+  {from:'n-audit',to:'n-src-audit',label:''},
+  {from:'n-svclog',to:'n-src-audit',label:''},
+  {from:'n-src-otlp',to:'n-vrl',label:''},
+  {from:'n-src-audit',to:'n-vrl',label:''},
+  {from:'n-vrl',to:'n-buffer',label:''},
+  {from:'n-buffer',to:'n-sink-otlp',label:''},
+  {from:'n-buffer',to:'n-sink-obs',label:''},
+  {from:'n-buffer',to:'n-sink-s3',label:''},
+  {from:'n-buffer',to:'n-sink-logme',label:''},
+  {from:'n-api',to:'n-operator',label:'creates CRD'},
+  {from:'n-operator',to:'n-src-otlp',label:'manages',dashed:true},
+  {from:'n-sink-obs',to:'n-argus',label:''},
+  {from:'n-sink-logme',to:'n-logme',label:''},
+  {from:'n-sink-s3',to:'n-s3view',label:''},
+  {from:'n-sink-otlp',to:'n-external',label:''},
+];
+
+function midpoint(el){
+  const d=document.getElementById('diagram');
+  const dr=d.getBoundingClientRect();
+  const r=el.getBoundingClientRect();
+  return{x:r.left-dr.left+r.width/2,y:r.top-dr.top+r.height/2,
+    t:{x:r.left-dr.left+r.width/2,y:r.top-dr.top},
+    b:{x:r.left-dr.left+r.width/2,y:r.top-dr.top+r.height},
+    l:{x:r.left-dr.left,y:r.top-dr.top+r.height/2},
+    r:{x:r.left-dr.left+r.width,y:r.top-dr.top+r.height/2}};
+}
+
+function drawArrows(){
+  const svg=document.getElementById('arrows');
+  svg.innerHTML='<defs><marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#30363d"/></marker><marker id="arr-b" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker></defs>';
+  arrows.forEach(function(a){
+    const f=document.getElementById(a.from),t=document.getElementById(a.to);
+    if(!f||!t)return;
+    const fm=midpoint(f),tm=midpoint(t);
+    let x1=fm.b.x,y1=fm.b.y,x2=tm.t.x,y2=tm.t.y;
+    const dy=tm.y-fm.y,dx=tm.x-fm.x;
+    if(Math.abs(dx)>Math.abs(dy)*1.5){
+      if(dx>0){x1=fm.r.x;y1=fm.r.y;x2=tm.l.x;y2=tm.l.y;}
+      else{x1=fm.l.x;y1=fm.l.y;x2=tm.r.x;y2=tm.r.y;}
+    }
+    const cx1=x1,cy1=(y1+y2)/2,cx2=x2,cy2=(y1+y2)/2;
+    const color=a.dashed?'#3fb950':'#30363d';
+    const marker=a.dashed?'arr-b':'arr';
+    const dash=a.dashed?'stroke-dasharray="4 3"':'';
+    let html='<path d="M'+x1+','+y1+' C'+cx1+','+cy1+' '+cx2+','+cy2+' '+x2+','+y2+'" fill="none" stroke="'+color+'" stroke-width="1.5" marker-end="url(#'+marker+')" '+dash+'/>';
+    if(a.label){
+      const lx=(x1+x2)/2,ly=(y1+y2)/2;
+      html+='<rect x="'+(lx-22)+'" y="'+(ly-8)+'" width="44" height="14" rx="3" fill="#161b22" stroke="#21262d" stroke-width="1"/>';
+      html+='<text x="'+lx+'" y="'+(ly+3)+'" text-anchor="middle" font-size="8" fill="#8b949e" font-family="monospace">'+a.label+'</text>';
+    }
+    svg.innerHTML+=html;
+  });
+}
+window.addEventListener('load',function(){
+  document.getElementById('main').className='dock-left';
+  setTimeout(drawArrows,150);
+});
+
+let activeNode=null;
+function show(id){
+  const data=NODE_DATA[id];
+  if(!data)return;
+  if(activeNode)document.getElementById('n-'+activeNode).classList.remove('active');
+  activeNode=id;
+  document.getElementById('n-'+id).classList.add('active');
+  document.getElementById('panel-title').textContent=data.title;
+  let html='';
+  if(data.tags){html+='<div class="panel-section" style="padding:16px 0 0;">'+data.tags.map(function(t){return '<span class="tag '+t.c+'">'+t.l+'</span>';}).join('')+'</div>';}
+  if(data.desc){html+='<div class="panel-section"><h3>What It Does</h3>'+data.desc.map(function(d){return '<p>'+d+'</p>';}).join('')+'</div>';}
+  if(data.bullets){html+='<div class="panel-section"><h3>Key Points</h3><ul>'+data.bullets.map(function(b){return '<li>'+b+'</li>';}).join('')+'</ul></div>';}
+  if(data.examples){
+    data.examples.forEach(function(ex){
+      html+='<div class="panel-section"><h3>'+ex.title+'</h3>';
+      if(ex.note)html+='<p style="margin-bottom:8px;font-size:0.82rem;color:#8b949e;">'+ex.note+'</p>';
+      html+='<div class="code-label">'+(ex.lang||'yaml')+'</div><pre><code class="language-'+(ex.lang||'yaml')+'">'+escHtml(ex.code)+'</code></pre></div>';
+    });
+  }
+  if(data.links){html+='<div class="panel-section"><h3>Documentation</h3><div class="docs-links">'+data.links.map(function(l){return '<a href="'+l.url+'" target="_blank" rel="noopener">&#8599; '+l.label+'</a>';}).join('')+'</div></div>';}
+  document.getElementById('panel-inner').innerHTML=html;
+  document.getElementById('panel').classList.add('open');
+  var _a={left:'\u2190',right:'\u2192',bottom:'\u2193',top:'\u2191'};
+  document.getElementById('hint').textContent=_a[currentDock]+' Click another node to switch';
+  document.querySelectorAll('pre code').forEach(function(b){hljs.highlightElement(b);});
+}
+
+var currentDock='left';
+function setDock(pos){
+  currentDock=pos;
+  var main=document.getElementById('main');
+  main.className='dock-'+pos;
+  // update button states
+  ['left','right','bottom','top'].forEach(function(p){
+    var b=document.getElementById('db-'+p);
+    if(b) b.classList.toggle('active', p===pos);
+  });
+  // update hint arrow direction
+  var arrows={left:'\u2190',right:'\u2192',bottom:'\u2193',top:'\u2191'};
+  var hint=document.getElementById('hint');
+  if(hint.textContent.indexOf('Click a node')>-1){
+    hint.textContent=arrows[pos]+' Click a node to open the detail panel';
+  }
+  // fix panel border visibility
+  setTimeout(drawArrows,50);
+}
+function closePanel(){
+  document.getElementById('panel').classList.remove('open');
+  if(activeNode)document.getElementById('n-'+activeNode).classList.remove('active');
+  activeNode=null;
+  var arrows={left:'\u2190',right:'\u2192',bottom:'\u2193',top:'\u2191'};
+  document.getElementById('hint').textContent=arrows[currentDock]+' Click a node to open the detail panel';
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+</script>
+</body>
+</html>

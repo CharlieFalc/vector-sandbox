@@ -1,0 +1,115 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: observability
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: docker-desktop
+        env: local
+
+    scrape_configs:
+      # Scrape Vector's internal metrics
+      - job_name: 'vector'
+        static_configs:
+          - targets: ['vector.telemetry-system.svc.cluster.local:9598']
+        metrics_path: /metrics
+
+      # Scrape the operator
+      - job_name: 'telemetry-operator'
+        static_configs:
+          - targets: ['telemetry-operator-api.telemetry-system.svc.cluster.local:8082']
+        metrics_path: /metrics
+
+      # Scrape Loki
+      - job_name: 'loki'
+        static_configs:
+          - targets: ['loki.observability.svc.cluster.local:3100']
+        metrics_path: /metrics
+
+      # Scrape Tempo
+      - job_name: 'tempo'
+        static_configs:
+          - targets: ['tempo.observability.svc.cluster.local:3200']
+        metrics_path: /metrics
+
+      # Scrape Prometheus itself
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: observability
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.54.0
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --web.enable-remote-write-receiver    # required for Vector remote_write sink
+            - --enable-feature=otlp-write-receiver  # accept OTel metrics directly from apps (added in v2.47)
+            - --web.console.libraries=/etc/prometheus/console_libraries
+            - --web.console.templates=/etc/prometheus/consoles
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: observability
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP

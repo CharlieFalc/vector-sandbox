@@ -1,0 +1,14 @@
+# oapi-codegen configuration
+# Docs: https://github.com/oapi-codegen/oapi-codegen
+#
+# Run:  make generate
+# This re-generates gen/types.gen.go from api/openapi.yaml whenever the spec
+# changes.  Only models (Go structs) are generated here — routing and handlers
+# are handwritten so the implementation remains stdlib-only.
+
+package: gen
+output: gen/types.gen.go
+
+generate:
+  models: true       # Generate Go structs for all OpenAPI schemas
+  embedded-spec: false

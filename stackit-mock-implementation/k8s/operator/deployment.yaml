@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-operator
+  namespace: telemetry-system
+  labels:
+    app: telemetry-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemetry-operator
+  template:
+    metadata:
+      labels:
+        app: telemetry-operator
+    spec:
+      serviceAccountName: telemetry-operator
+      containers:
+        - name: operator
+          image: stackit-mock/operator:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+            - name: metrics
+              containerPort: 8082
+          env:
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: VECTOR_IMAGE
+              value: "timberio/vector:0.42.0-distroless-libc"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemetry-operator-api
+  namespace: telemetry-system
+  labels:
+    app: telemetry-operator
+spec:
+  selector:
+    app: telemetry-operator
+  ports:
+    - name: api
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

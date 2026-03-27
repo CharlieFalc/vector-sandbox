@@ -1,0 +1,45 @@
+apiVersion: telemetry.stackit.local/v1alpha1
+kind: TelemetryRouter
+metadata:
+  name: main-router
+  namespace: telemetry-system
+spec:
+  replicas: 1
+
+  sources:
+    - OTLP
+
+  # ── VRL Transforms ──────────────────────────────────────────────────────────
+  # These run inside Vector's remap transform before data is sent to any sink.
+  # In a real STACKIT deployment these would enforce EU data residency rules,
+  # redact PII, and tag events with cost-allocation labels.
+  transforms:
+    - name: add-env-labels
+      vrl: |
+        .resource.attributes."deployment.environment" = "local-demo"
+        .resource.attributes."k8s.cluster" = "docker-desktop"
+
+    - name: redact-pii
+      vrl: |
+        # Scrub any field that looks like an email address
+        if exists(.body) {
+          .body = replace(string!(.body), r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b', "[REDACTED_EMAIL]")
+        }
+
+  # ── Destinations ────────────────────────────────────────────────────────────
+  # The operator translates each entry into a Vector sink.
+  # PROMETHEUS → prometheus_remote_write  (metrics only)
+  # LOKI       → loki                     (logs + traces as JSON)
+  # OTLP       → opentelemetry            (logs + traces as OTLP)
+  destinations:
+    - name: prometheus
+      type: PROMETHEUS
+      endpoint: http://prometheus.observability.svc.cluster.local:9090/api/v1/write
+
+    - name: loki
+      type: LOKI
+      endpoint: http://loki.observability.svc.cluster.local:3100
+
+    - name: tempo
+      type: OTLP
+      endpoint: http://tempo.observability.svc.cluster.local:4317

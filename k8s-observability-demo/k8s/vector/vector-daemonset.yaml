@@ -1,0 +1,154 @@
+---
+# Vector DaemonSet — one pod per node.
+# Runs with host-path mounts to read /var/log/pods/ directly.
+# This is the standard Kubernetes log collection pattern.
+#
+# Why DaemonSet (not Deployment)?
+#   - Each node has its own /var/log/pods directory.
+#   - A Deployment with replicas=N only covers N nodes randomly.
+#   - A DaemonSet guarantees exactly one collector per node.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector
+  namespace: observability-demo
+  labels:
+    app: vector
+    app.kubernetes.io/component: log-collector
+    app.kubernetes.io/part-of: observability-demo
+spec:
+  selector:
+    matchLabels:
+      app: vector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: vector
+        app.kubernetes.io/part-of: observability-demo
+      annotations:
+        # Config hash — patched by operator to trigger rolling update.
+        observability.demo.dev/config-hash: "initial"
+    spec:
+      # Vector needs to read from the host filesystem.
+      # Use a dedicated ServiceAccount with minimal permissions.
+      serviceAccountName: vector
+      tolerations:
+        # Run on ALL nodes including control plane nodes.
+        - operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: vector
+          image: timberio/vector:0.38.0-debian
+          args:
+            - --config
+            - /etc/vector/vector.toml
+          env:
+            - name: VECTOR_LOG
+              value: "info"
+            # Required for the kubernetes_logs source to identify the current node.
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: metrics
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector
+              readOnly: true
+            # Read pod log files from the host.
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            # Vector needs /var/log/containers symlinks for metadata.
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            # Vector writes its own state (cursor positions) here.
+            # This ensures it doesn't re-read logs after a pod restart.
+            - name: vector-data
+              mountPath: /var/lib/vector
+            # Disk buffer for the SigNoz sink.
+            - name: vector-buffer
+              mountPath: /var/lib/vector-buffer
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8686
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 5
+      volumes:
+        - name: config
+          configMap:
+            name: vector-config
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+            type: DirectoryOrCreate
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+            type: DirectoryOrCreate
+        - name: vector-data
+          hostPath:
+            path: /var/lib/vector
+            type: DirectoryOrCreate
+        - name: vector-buffer
+          emptyDir: {}  # replace with hostPath or PVC for larger buffers
+
+---
+# ServiceAccount for Vector — needs read access to pods/nodes for metadata.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vector
+  namespace: observability-demo
+  labels:
+    app: vector
+    app.kubernetes.io/part-of: observability-demo
+
+---
+# ClusterRole — Vector needs cluster-wide pod/node read access for the
+# kubernetes_logs source to enrich log events with pod metadata.
+# This is read-only and is the minimum required set.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vector-observability-demo
+  labels:
+    app: vector
+    app.kubernetes.io/part-of: observability-demo
+rules:
+  - apiGroups: [""]
+    resources: [pods, nodes, namespaces]
+    verbs: [get, list, watch]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vector-observability-demo
+  labels:
+    app: vector
+    app.kubernetes.io/part-of: observability-demo
+subjects:
+  - kind: ServiceAccount
+    name: vector
+    namespace: observability-demo
+roleRef:
+  kind: ClusterRole
+  name: vector-observability-demo
+  apiGroup: rbac.authorization.k8s.io

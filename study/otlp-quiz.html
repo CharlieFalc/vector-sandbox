@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTLP & OpenTelemetry Deep Dive Quiz</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 2rem; }
+  .container { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 700; color: #7dd3fc; margin-bottom: 0.25rem; }
+  .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+  .progress-bar { background: #1e293b; border-radius: 99px; height: 6px; margin-bottom: 2rem; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #7dd3fc); border-radius: 99px; transition: width 0.4s ease; }
+  .score-badge { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.4rem 1rem; font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem; }
+  .score-badge span { color: #7dd3fc; font-weight: 700; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; transition: border-color 0.2s; }
+  .card.correct { border-color: #22c55e; background: #052e16; }
+  .card.incorrect { border-color: #ef4444; background: #1c0606; }
+  .category { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.6rem; }
+  .question { font-size: 1rem; font-weight: 600; color: #f1f5f9; margin-bottom: 1rem; line-height: 1.5; }
+  .options { display: flex; flex-direction: column; gap: 0.5rem; }
+  .option { background: #0f1117; border: 1px solid #334155; border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; font-size: 0.9rem; color: #cbd5e1; transition: all 0.15s; text-align: left; }
+  .option:hover:not(:disabled) { border-color: #3b82f6; color: #f1f5f9; background: #1e3a5f; }
+  .option.selected-correct { border-color: #22c55e; background: #166534; color: #bbf7d0; }
+  .option.selected-incorrect { border-color: #ef4444; background: #7f1d1d; color: #fecaca; }
+  .option.show-correct { border-color: #22c55e; color: #86efac; }
+  .option:disabled { cursor: default; }
+  .explanation { margin-top: 1rem; padding: 0.75rem 1rem; background: #0f1117; border-left: 3px solid #3b82f6; border-radius: 0 6px 6px 0; font-size: 0.875rem; color: #94a3b8; line-height: 1.6; display: none; }
+  .explanation strong { color: #7dd3fc; }
+  .explanation code { background: #1e293b; padding: 0.1rem 0.35rem; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.8em; color: #f472b6; }
+  .result-panel { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 2rem; text-align: center; display: none; }
+  .result-panel h2 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+  .big-score { font-size: 3.5rem; font-weight: 800; color: #7dd3fc; line-height: 1; margin: 1rem 0; }
+  .result-msg { color: #94a3b8; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.6; }
+  .btn { background: #3b82f6; color: white; border: none; border-radius: 8px; padding: 0.6rem 1.4rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #2563eb; }
+  .tag { display: inline-block; font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; vertical-align: middle; }
+  .tag-hard { background: #7f1d1d; color: #fca5a5; }
+  .tag-med { background: #78350f; color: #fcd34d; }
+  .tag-easy { background: #052e16; color: #86efac; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>OTLP & OpenTelemetry Deep Dive</h1>
+  <p class="subtitle">Interview prep for STACKIT Telemetry Router — Mike Falcone</p>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="score-badge">Score: <span id="scoreDisplay">0</span> / <span id="totalDisplay">0</span></div>
+
+  <div id="quizArea"></div>
+
+  <div class="result-panel" id="resultPanel">
+    <h2>Quiz Complete 🎯</h2>
+    <div class="big-score" id="bigScore"></div>
+    <div class="result-msg" id="resultMsg"></div>
+    <button class="btn" onclick="resetQuiz()">Retake Quiz</button>
+  </div>
+</div>
+
+<script>
+const questions = [
+  {
+    category: "OTLP Fundamentals",
+    difficulty: "easy",
+    q: "What does OTLP stand for and what problem does it solve?",
+    options: [
+      "OpenTelemetry Log Protocol — a format for structured log shipping only",
+      "OpenTelemetry Protocol — a vendor-neutral wire format for logs, metrics, and traces over a single standard transport",
+      "Open Transport Layer Protocol — a replacement for HTTP/2 in observability stacks",
+      "OpenTelemetry Logging Pipe — a sidecar pattern for Kubernetes log collection"
+    ],
+    correct: 1,
+    explanation: "<strong>OTLP (OpenTelemetry Protocol)</strong> is the wire format defined by the OpenTelemetry project. Its key value: one protocol covers all three signal types (logs, metrics, traces) using Protocol Buffers over gRPC or HTTP/JSON. Before OTLP, every vendor had a proprietary agent format — Datadog agent, Prometheus exposition format, Zipkin JSON, etc. OTLP lets you instrument once and route anywhere, which is exactly what the Telemetry Router is built on."
+  },
+  {
+    category: "OTLP Fundamentals",
+    difficulty: "med",
+    q: "OTLP supports two transports. What are they and when would you choose each?",
+    options: [
+      "TCP and UDP — choose UDP for low-latency, TCP for reliability",
+      "gRPC (protobuf binary) and HTTP/JSON — gRPC for high-throughput internal services, HTTP/JSON for browser clients or firewall-restricted environments",
+      "WebSocket and REST — WebSocket for streaming, REST for batch",
+      "Kafka and gRPC — Kafka for fan-out, gRPC for point-to-point"
+    ],
+    correct: 1,
+    explanation: "<strong>gRPC/protobuf</strong> is the primary transport: binary encoding means ~3–10x smaller payloads than JSON, bidirectional streaming supports back-pressure signaling, and HTTP/2 multiplexing allows many concurrent streams over one connection. Use it for service-to-service within a cluster. <strong>HTTP/JSON (OTLP/HTTP)</strong> uses the same proto schema but JSON-encoded over HTTP/1.1 — useful when the client is behind a proxy that doesn't support HTTP/2, or when integrating with legacy tools. Vector's <code>opentelemetry</code> source accepts both on ports 4317 (gRPC) and 4318 (HTTP)."
+  },
+  {
+    category: "Signal Types",
+    difficulty: "med",
+    q: "Name the three OTLP signal types. For a Kubernetes pod crash, which signal type(s) would carry the evidence?",
+    options: [
+      "Logs, metrics, traces. Only logs — crash output goes to stderr which becomes a log record.",
+      "Logs, metrics, traces. All three: logs contain the panic/error message, metrics show memory/CPU spikes before the crash, traces show the in-flight request that triggered the fault.",
+      "Logs, events, alerts. Events are the primary signal for infrastructure failures.",
+      "Spans, counters, structured logs. Only spans, since they represent the execution path."
+    ],
+    correct: 1,
+    explanation: "The three signal types are <strong>logs</strong> (timestamped text/structured records), <strong>metrics</strong> (numerical measurements over time), and <strong>traces</strong> (distributed request flows composed of spans). For a pod crash: <strong>logs</strong> capture the panic message and stack trace; <strong>metrics</strong> (<code>container_memory_working_set_bytes</code>, OOM events) show resource pressure before the crash; <strong>traces</strong> may show the inflight RPC that triggered the fault. This is why OTLP's unified model matters — you can correlate all three by <code>trace_id</code> and <code>resource.attributes</code>."
+  },
+  {
+    category: "Proto Schema",
+    difficulty: "hard",
+    q: "In the OTLP proto schema, what is the hierarchy for log data?",
+    options: [
+      "LogRecord → LogBatch → ExportRequest",
+      "ExportLogsServiceRequest → ResourceLogs → ScopeLogs → LogRecord",
+      "OTLPPayload → ServiceLogs → InstrumentationLogs → LogEntry",
+      "LogStream → LogGroup → LogLine → LogAttribute"
+    ],
+    correct: 1,
+    explanation: "The OTLP log proto hierarchy is: <code>ExportLogsServiceRequest</code> (the top-level RPC payload) → <code>ResourceLogs[]</code> (grouped by resource — e.g., one k8s node) → <code>ScopeLogs[]</code> (grouped by instrumentation scope — e.g., the library that produced them) → <code>LogRecord[]</code> (the individual records). <strong>Resource</strong> attributes (<code>k8s.pod.name</code>, <code>service.name</code>) live at the ResourceLogs level and are shared across all records in the group — this is a key optimization: you don't repeat them per record. Understanding this hierarchy helps when writing Vector VRL transforms that need to access <code>.resource.attributes</code>."
+  },
+  {
+    category: "Proto Schema",
+    difficulty: "hard",
+    q: "What is the purpose of the 'Resource' object in OTLP, and how does it differ from 'Attributes' on a LogRecord?",
+    options: [
+      "Resource and Attributes are interchangeable — both are key-value maps attached to each signal.",
+      "Resource describes the entity producing the data (e.g., the k8s pod/service) and is shared across a batch of signals. Attributes describe the specific signal instance (e.g., HTTP status code, user ID).",
+      "Resource is for infrastructure metadata (cloud region, instance type). Attributes are for application-level data. Both are mandatory.",
+      "Resource is deprecated in OTLP v2 in favor of Scope attributes."
+    ],
+    correct: 1,
+    explanation: "<strong>Resource</strong> (e.g., <code>service.name=my-app</code>, <code>k8s.pod.name=my-app-7d9f</code>, <code>cloud.region=eu-central-1</code>) describes the <em>producer</em> of telemetry — it's invariant across all signals from that entity in a batch. <strong>Attributes/LogRecord.attributes</strong> (e.g., <code>http.method=POST</code>, <code>db.statement=SELECT...</code>) describe the individual observation. This distinction matters in STACKIT's Telemetry Router because: (1) region compliance checks run against <code>resource.cloud.region</code>, not individual record attributes; (2) Vector VRL accesses them at different paths (<code>.resource.attributes</code> vs <code>.attributes</code>); (3) PII redaction must cover both levels."
+  },
+  {
+    category: "Vector Framework",
+    difficulty: "med",
+    q: "In Vector's topology model, what are Sources, Transforms, and Sinks? Give a concrete example of each for the Telemetry Router.",
+    options: [
+      "Sources = Kafka topics, Transforms = Kafka Streams processors, Sinks = Kafka consumers",
+      "Sources = data ingestion points (e.g., OTLP gRPC receiver), Transforms = processing steps (e.g., VRL for PII redaction), Sinks = delivery destinations (e.g., S3 bucket, SIEM endpoint)",
+      "Sources = databases, Transforms = SQL queries, Sinks = output files",
+      "Sources = Prometheus scrapers, Transforms = PromQL queries, Sinks = Grafana dashboards"
+    ],
+    correct: 1,
+    explanation: "Vector's three primitives: <strong>Sources</strong> ingest data (<code>type = \"opentelemetry\"</code> on ports 4317/4318 for the Telemetry Router). <strong>Transforms</strong> are stateless or stateful processing steps — VRL (Vector Remap Language) transforms are the main tool: remap fields, filter records, redact PII, enrich with metadata. <strong>Sinks</strong> deliver to destinations: <code>aws_s3</code>, <code>opentelemetry</code> (OTLP egress), <code>elasticsearch</code>, etc. Each sink has its own <code>[buffer]</code> block which is the isolation mechanism — a slow sink's buffer filling up never blocks other sinks."
+  },
+  {
+    category: "Vector Framework",
+    difficulty: "hard",
+    q: "A customer's SIEM sink starts taking 30+ seconds to respond. What happens in the Telemetry Router's Vector pipeline, and how is isolation maintained?",
+    options: [
+      "The entire pipeline pauses until the SIEM responds, since Vector processes events serially.",
+      "Vector's per-sink buffer absorbs the backlog. When the buffer (max_events) fills, it applies the when_full policy (drop_newest or block). Other sinks are unaffected because each has its own independent buffer and goroutine.",
+      "Vector automatically switches to the next available sink and marks the SIEM as unhealthy.",
+      "The gRPC source starts rejecting new connections until the SIEM recovers."
+    ],
+    correct: 1,
+    explanation: "Each Vector sink has an independent <code>[buffer]</code> block. For the slow SIEM: <code>type = \"memory\"</code>, <code>max_events = 10000</code>, <code>when_full = \"drop_newest\"</code>. When the SIEM is slow, events queue in <em>that sink's buffer only</em>. When it fills, <code>drop_newest</code> discards incoming events rather than applying backpressure upstream — this is the deliberate trade-off between completeness and pipeline health. The S3 sink and Observability sink have completely separate buffers and goroutines; they continue processing at full speed. In Go, this is modeled as each sink having its own <code>chan *LogRecord</code> — the fan-out dispatcher does a non-blocking send to each, so no sink can block any other."
+  },
+  {
+    category: "Vector Framework",
+    difficulty: "med",
+    q: "What is VRL (Vector Remap Language) and why is it preferable to running arbitrary Lua or WASM transforms in a telemetry pipeline?",
+    options: [
+      "VRL is a superset of JavaScript that runs in a V8 sandbox — faster than Lua but less secure.",
+      "VRL is a purpose-built, sandboxed functional language: no network access, no filesystem, no infinite loops possible. It's compiled to bytecode at startup, type-safe, and designed specifically for telemetry field manipulation.",
+      "VRL stands for Vector Runtime Library — it's a Go package for building custom Vector plugins.",
+      "VRL is a YAML-based DSL for defining routing rules without any code."
+    ],
+    correct: 1,
+    explanation: "<strong>VRL</strong> is a domain-specific language built into Vector. Its key properties for a sovereign cloud context: (1) <strong>No side effects</strong> — VRL programs cannot make network calls or read files, eliminating a whole class of supply-chain risks. (2) <strong>Termination guarantee</strong> — the compiler rejects programs that could loop infinitely, giving predictable latency. (3) <strong>Type safety</strong> — field access failures are caught at compile time, not at 2am during a spike. (4) <strong>Performance</strong> — compiled to bytecode once at startup, not interpreted per-record. For STACKIT's compliance use case, VRL's sandbox is important: PII redaction logic runs without risk of exfiltrating data through a transform."
+  },
+  {
+    category: "Compliance & Sovereignty",
+    difficulty: "hard",
+    q: "STACKIT is a sovereign cloud. A customer tries to add an S3 destination in us-east-1 (AWS Virginia). Where in the system should this be blocked, and at which layers?",
+    options: [
+      "Only at the REST API layer — validate the region on POST /destinations and return 422 if non-EU.",
+      "At two layers: (1) REST API returns 422 Unprocessable Entity when allowNonEU is not set, (2) the k8s operator's reconcile loop re-validates the CRD spec and refuses to render/apply the Vector config if a non-EU sink is present without the opt-in annotation. Defense in depth.",
+      "At the Vector sink level — Vector has a built-in geo-filter that blocks non-EU endpoints.",
+      "At the network layer only — STACKIT's egress firewall blocks all traffic to non-EU IP ranges."
+    ],
+    correct: 1,
+    explanation: "<strong>Defense in depth</strong> requires at least two enforcement points: <br><br><strong>Layer 1 — REST API</strong>: When <code>POST /destinations</code> receives an S3 config with a non-EU <code>region</code> and <code>allowNonEU</code> is not <code>true</code>, return <code>422 Unprocessable Entity</code> with a clear message. Fast feedback to the customer before anything is persisted.<br><br><strong>Layer 2 — k8s Operator</strong>: The reconcile loop calls <code>enforceRegionPolicy()</code> before rendering the Vector config. Even if someone bypasses the API and patches the CRD directly, the operator won't apply a config with non-EU S3 destinations. This is the authoritative enforcement point. Set a <code>RegionCompliant: False</code> condition on the CR status so the violation is visible in <code>kubectl describe</code>."
+  },
+  {
+    category: "OpenTelemetry Ecosystem",
+    difficulty: "med",
+    q: "What is the OpenTelemetry Collector and how does it relate to Vector in the Telemetry Router context?",
+    options: [
+      "The OTel Collector is a direct competitor to Vector — STACKIT had to choose one and chose Vector.",
+      "The OTel Collector is a vendor-neutral CNCF project for receiving, processing, and exporting telemetry. Vector overlaps in capability but has stronger transformation primitives (VRL). In the Telemetry Router, Vector handles the routing/fan-out layer while customer workloads use OTel SDKs to emit OTLP to Vector's receiver.",
+      "The OTel Collector is the SDK component that runs inside each application. Vector is the cluster-level aggregator.",
+      "The OTel Collector and Vector are the same project — Vector is the CNCF's rebranding of the Collector."
+    ],
+    correct: 1,
+    explanation: "The <strong>OpenTelemetry Collector</strong> (CNCF project) is a standalone agent/gateway that receives OTLP, runs processors, and exports to backends — conceptually similar to Vector. The key differences: Vector has a more powerful transformation language (VRL vs. OTel's limited processors), better buffer/backpressure controls, and broader sink ecosystem. In STACKIT's architecture: customer workloads instrument with <strong>OTel SDKs</strong> (Go, Java, Python SDKs) which emit OTLP to Vector's <code>opentelemetry</code> source. Vector then applies transforms and fans out to sinks. You might also run an OTel Collector as a DaemonSet to collect node-level metrics and forward to Vector via OTLP — they compose well."
+  },
+  {
+    category: "OpenTelemetry Ecosystem",
+    difficulty: "hard",
+    q: "What are Semantic Conventions in OpenTelemetry and why do they matter for the Telemetry Router's transform layer?",
+    options: [
+      "Semantic Conventions are optional naming suggestions — teams can ignore them if they have their own standards.",
+      "Semantic Conventions are standardized attribute names (e.g., k8s.pod.name, http.request.method, db.system) defined by the OTel spec. They matter for transforms because you can write VRL rules that work across any compliant service without custom per-service mappings.",
+      "Semantic Conventions are STACKIT-specific field names defined in the STACKIT Observability schema.",
+      "Semantic Conventions are JSON schemas for validating OTLP payloads at ingestion time."
+    ],
+    correct: 1,
+    explanation: "<strong>Semantic Conventions</strong> (SemConv) are the OTel spec's dictionary of standardized attribute names: <code>k8s.pod.name</code>, <code>k8s.namespace.name</code>, <code>http.request.method</code>, <code>http.response.status_code</code>, <code>db.system</code>, <code>cloud.region</code>, etc. For the Telemetry Router's transform layer, this is powerful: your VRL PII redaction can use <code>.attributes.\"enduser.id\"</code> knowing that's the standard field for user identifiers across all compliant SDKs. Region compliance checks use <code>.resource.\"cloud.region\"</code>. Without SemConv, every microservice might call it <code>region</code>, <code>cloud_region</code>, <code>aws_region</code> — impossible to write reliable generic transforms."
+  },
+  {
+    category: "Practical / Interview",
+    difficulty: "hard",
+    q: "The interviewer asks: 'We say OTLP is more than just a standard — what do you mean by that?' What's the ideal answer?",
+    options: [
+      "OTLP is a great standard because it's open source and has good tooling support.",
+      "OTLP represents a shift from pull-based, vendor-specific collection to a push-based, unified telemetry contract. It decouples instrumentation from routing — your code instruments once against a stable API, and the infrastructure decides where data goes. For STACKIT, it's the foundation of sovereignty: no vendor lock-in at the instrumentation layer.",
+      "OTLP is basically Prometheus but with support for logs and traces added on top.",
+      "OTLP is important because it supports both gRPC and HTTP, which gives flexibility in network configuration."
+    ],
+    correct: 1,
+    explanation: "This is the 'philosophy' question — they want to hear that you understand the <em>design intent</em>, not just the syntax. The ideal answer touches: (1) <strong>Decoupling instrumentation from routing</strong> — app developers instrument with OTel SDKs and emit OTLP; the ops/platform team decides sinks without touching app code. (2) <strong>Unified signal model</strong> — logs, metrics, and traces share resource/scope metadata, enabling correlation you can't do with separate pipelines. (3) <strong>Sovereignty implication</strong> — when the wire format is open and standardized, STACKIT can build routing logic that works for any workload without proprietary agents. (4) <strong>Future-proofing</strong> — profiles signal type is being added; OTLP-compliant infrastructure can adopt it without replacing instrumentation."
+  }
+];
+
+let answered = 0;
+let correct = 0;
+let total = questions.length;
+
+function renderQuiz() {
+  const area = document.getElementById('quizArea');
+  document.getElementById('totalDisplay').textContent = total;
+  area.innerHTML = questions.map((q, i) => `
+    <div class="card" id="card-${i}">
+      <div class="category">${q.category} &nbsp;
+        <span class="tag tag-${q.difficulty === 'hard' ? 'hard' : q.difficulty === 'med' ? 'med' : 'easy'}">
+          ${q.difficulty === 'hard' ? '🔴 Hard' : q.difficulty === 'med' ? '🟡 Medium' : '🟢 Easy'}
+        </span>
+      </div>
+      <div class="question">Q${i+1}. ${q.q}</div>
+      <div class="options">
+        ${q.options.map((opt, j) => `
+          <button class="option" id="opt-${i}-${j}" onclick="answer(${i}, ${j})" data-qi="${i}" data-oi="${j}">
+            <span style="color:#64748b;margin-right:0.5rem">${String.fromCharCode(65+j)}.</span> ${opt}
+          </button>
+        `).join('')}
+      </div>
+      <div class="explanation" id="exp-${i}">${q.explanation}</div>
+    </div>
+  `).join('');
+  updateProgress();
+}
+
+function answer(qi, oi) {
+  const q = questions[qi];
+  const card = document.getElementById(`card-${qi}`);
+  // Disable all options for this question
+  for (let j = 0; j < q.options.length; j++) {
+    const btn = document.getElementById(`opt-${qi}-${j}`);
+    btn.disabled = true;
+  }
+  const selected = document.getElementById(`opt-${qi}-${oi}`);
+  const correctBtn = document.getElementById(`opt-${qi}-${q.correct}`);
+  if (oi === q.correct) {
+    selected.classList.add('selected-correct');
+    card.classList.add('correct');
+    correct++;
+  } else {
+    selected.classList.add('selected-incorrect');
+    correctBtn.classList.add('show-correct');
+    card.classList.add('incorrect');
+  }
+  document.getElementById(`exp-${qi}`).style.display = 'block';
+  answered++;
+  document.getElementById('scoreDisplay').textContent = correct;
+  updateProgress();
+  if (answered === total) setTimeout(showResult, 600);
+}
+
+function updateProgress() {
+  const pct = (answered / total) * 100;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+function showResult() {
+  document.getElementById('resultPanel').style.display = 'block';
+  const pct = Math.round((correct / total) * 100);
+  document.getElementById('bigScore').textContent = `${correct} / ${total}`;
+  let msg = '';
+  if (pct >= 90) msg = "🏆 Outstanding. You understand OTLP at the depth the JD is asking for. Lead with signal-type correlation and sovereignty implications in the interview.";
+  else if (pct >= 70) msg = "💪 Solid foundation. Review the questions you missed — especially the proto schema hierarchy and Vector isolation model. Those are likely to come up.";
+  else if (pct >= 50) msg = "📚 Good start. Focus on: (1) Resource vs. Attributes distinction, (2) Vector's per-sink buffer isolation pattern, (3) the defense-in-depth compliance answer.";
+  else msg = "🔄 Keep going — these are genuinely hard concepts. Re-read the explanations, then retake. The answers contain the exact framing the interviewers want to hear.";
+  document.getElementById('resultMsg').textContent = msg;
+  document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth' });
+}
+
+function resetQuiz() {
+  answered = 0; correct = 0;
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('scoreDisplay').textContent = 0;
+  renderQuiz();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+renderQuiz();
+</script>
+</body>
+</html>

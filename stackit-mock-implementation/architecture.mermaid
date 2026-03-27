@@ -1,0 +1,77 @@
+graph TD
+    subgraph customer-app["Namespace: customer-app"]
+        PS["🐍 price-service\n(FastAPI + OTel SDK 1.27)\nPython 3.11"]
+    end
+
+    subgraph telemetry-system["Namespace: telemetry-system"]
+        OP["⚙️ telemetry-operator\n(Go / controller-runtime v0.18)\nReconciles TelemetryRouter CRs"]
+        VEC["📦 vector-main-router\n(Vector 0.42.0)\nEnriches + routes log events"]
+        CM["📄 ConfigMap\nvector-config-main-router\n(rendered TOML)"]
+        TR["📋 TelemetryRouter CR\nmain-router\n(kind: TelemetryRouter)"]
+        API["🔌 operator REST API\n:8080 — CRUD for routers"]
+    end
+
+    subgraph observability["Namespace: observability"]
+        LOKI["🪵 Loki\nlabel-indexed log store"]
+        PROM["📈 Prometheus\nTSDB + remote-write receiver\n+ OTLP receiver"]
+        TEMPO["🔍 Tempo\ntrace backend"]
+        GRAF["📊 Grafana 11.3\nDashboards + Explore"]
+    end
+
+    subgraph "Developer / CI"
+        DEV["👤 kubectl / make"]
+        PORTFWD["🔀 port-forward\n:8000 :3000 :9090\n:3100 :3200 :8080"]
+    end
+
+    %% Developer applies CR
+    DEV -->|"kubectl apply\nTelemetryRouter CR"| TR
+
+    %% Operator watches CR → renders config → manages Vector deployment
+    TR -->|"Watch (controller-runtime)"| OP
+    OP -->|"Render TOML via\nGo template"| CM
+    OP -->|"Create/update Deployment\n+ Service for Vector"| VEC
+    CM -->|"Mounted as\n/etc/vector/vector.toml"| VEC
+
+    %% REST API
+    OP --- API
+    DEV -->|"GET/POST/PUT/PATCH/DELETE\n/api/v1/routers"| API
+
+    %% Price-service OTel signal fan-out
+    PS -->|"OTLP HTTP logs\n→ :4318/v1/logs"| VEC
+    PS -->|"OTLP HTTP traces\n→ :4318/v1/traces\n(direct — Vector can't\nemit OTLP format)"| TEMPO
+    PS -->|"OTLP HTTP metrics\n→ :9090/api/v1/otlp/v1/metrics\n(direct — Vector 0.42 drops\notlp_in.metrics)"| PROM
+
+    %% Vector internals
+    VEC -->|"opentelemetry source\notlp_in.logs + otlp_in.traces\n↓\nenrich transform (VRL)\n• add deployment.environment\n• add k8s.cluster\n• hoist service_name label"| VEC
+
+    %% Vector sinks
+    VEC -->|"loki sink\nlabels: router, service_name\nencoding: json"| LOKI
+    VEC -->|"prometheus_remote_write sink\nvector_metrics source\n(Vector's own pipeline metrics)"| PROM
+
+    %% Grafana datasources
+    LOKI -->|"LogQL\n{service_name='price-service'}"| GRAF
+    PROM -->|"PromQL\nvector_* + http_server_*"| GRAF
+    TEMPO -->|"TraceQL / trace search"| GRAF
+
+    %% Port forwards to localhost
+    PORTFWD -.->|":3000"| GRAF
+    PORTFWD -.->|":8000"| PS
+    PORTFWD -.->|":8080"| API
+    PORTFWD -.->|":9090"| PROM
+    PORTFWD -.->|":3100"| LOKI
+    PORTFWD -.->|":3200"| TEMPO
+
+    %% Styling
+    classDef app fill:#2d6a4f,color:#fff,stroke:#1b4332
+    classDef operator fill:#1d3557,color:#fff,stroke:#0d1b2a
+    classDef vector fill:#6a0572,color:#fff,stroke:#3d0140
+    classDef observe fill:#7b3f00,color:#fff,stroke:#4a2700
+    classDef infra fill:#333,color:#fff,stroke:#111
+    classDef dev fill:#555,color:#fff,stroke:#222,stroke-dasharray:4 2
+
+    class PS app
+    class OP,API,TR,CM operator
+    class VEC vector
+    class LOKI,PROM,TEMPO,GRAF observe
+    class PORTFWD dev
+    class DEV dev

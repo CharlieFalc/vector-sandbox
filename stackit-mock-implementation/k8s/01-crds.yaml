@@ -1,0 +1,85 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: telemetryrouters.telemetry.stackit.local
+spec:
+  group: telemetry.stackit.local
+  names:
+    kind: TelemetryRouter
+    listKind: TelemetryRouterList
+    plural: telemetryrouters
+    singular: telemetryrouter
+    shortNames:
+      - tr
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Replicas
+          type: integer
+          jsonPath: .spec.replicas
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [destinations]
+              properties:
+                replicas:
+                  type: integer
+                  default: 1
+                  minimum: 1
+                  maximum: 5
+                sources:
+                  type: array
+                  items:
+                    type: string
+                    enum: [OTLP]
+                  default: [OTLP]
+                transforms:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, vrl]
+                    properties:
+                      name:
+                        type: string
+                      vrl:
+                        type: string
+                destinations:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, type, endpoint]
+                    properties:
+                      name:
+                        type: string
+                      type:
+                        type: string
+                        enum: [OTLP, LOKI, PROMETHEUS]
+                      endpoint:
+                        type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                vectorConfigHash:
+                  type: string
+                readyReplicas:
+                  type: integer
+                message:
+                  type: string
+                lastReconcileAt:
+                  type: string

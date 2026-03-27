@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: price-service
+  namespace: customer-app
+  labels:
+    app: price-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: price-service
+  template:
+    metadata:
+      labels:
+        app: price-service
+    spec:
+      containers:
+        - name: price-service
+          image: stackit-mock/price-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            # OTel signal routing:
+            #   Logs    → Vector  (enrichment + label injection → Loki)
+            #   Traces  → Tempo   (direct OTLP; Vector HTTP sink can't emit OTLP format)
+            #   Metrics → Prometheus OTLP receiver (Vector 0.42 drops otlp_in.metrics)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://vector.telemetry-system.svc.cluster.local:4318"
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: "http://tempo.observability.svc.cluster.local:4318/v1/traces"
+            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+              value: "http://prometheus.observability.svc.cluster.local:9090/api/v1/otlp/v1/metrics"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_SERVICE_NAME
+              value: "price-service"
+            - name: OTEL_SERVICE_VERSION
+              value: "1.0.0"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=local,k8s.namespace=customer-app,k8s.cluster=docker-desktop"
+            - name: OTEL_PYTHON_LOG_CORRELATION
+              value: "true"
+            - name: OTEL_PYTHON_LOG_LEVEL
+              value: "info"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_SAMPLER
+              value: "always_on"
+            # App config
+            - name: PORT
+              value: "8000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: price-service
+  namespace: customer-app
+  labels:
+    app: price-service
+spec:
+  selector:
+    app: price-service
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

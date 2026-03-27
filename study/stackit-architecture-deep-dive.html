@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>STACKIT Telemetry Architecture — Interview Deep Dive</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      line-height: 1.7;
+      padding: 32px 24px;
+    }
+    .container { max-width: 1000px; margin: 0 auto; }
+    h1 { font-size: 1.8rem; color: #58a6ff; margin-bottom: 6px; }
+    .subtitle { color: #8b949e; font-size: 0.95rem; margin-bottom: 40px; }
+    h2 { font-size: 1.25rem; color: #f0f6ff; margin: 40px 0 12px; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
+    h3 { font-size: 1rem; color: #79c0ff; margin: 24px 0 8px; }
+    p { margin-bottom: 14px; color: #c9d1d9; }
+    ul { padding-left: 20px; margin-bottom: 14px; }
+    li { color: #c9d1d9; margin-bottom: 6px; }
+    strong { color: #f0f6ff; }
+    .callout {
+      background: #161b22;
+      border-left: 3px solid #58a6ff;
+      border-radius: 4px;
+      padding: 14px 18px;
+      margin: 20px 0;
+    }
+    .callout.warn { border-left-color: #f0a500; }
+    .callout.green { border-left-color: #3fb950; }
+    .callout p { margin: 0; font-size: 0.92rem; }
+    .callout strong { color: #58a6ff; }
+    .callout.warn strong { color: #f0a500; }
+    .callout.green strong { color: #3fb950; }
+    .diagram-wrap {
+      background: #fff;
+      border-radius: 8px;
+      padding: 24px 16px;
+      margin: 24px 0;
+      overflow-x: auto;
+    }
+    pre {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      margin: 12px 0 20px;
+    }
+    code { font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; }
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .tag.blue { background: #1c3a5e; color: #79c0ff; }
+    .tag.green { background: #1a3a2a; color: #56d364; }
+    .tag.orange { background: #3a2a1a; color: #f0a500; }
+    .tag.purple { background: #2a1a3a; color: #bc8cff; }
+    .layer-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 16px 0;
+    }
+    .layer-card {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .layer-card h4 { color: #79c0ff; margin-bottom: 8px; font-size: 0.9rem; }
+    .layer-card p { font-size: 0.88rem; margin: 0; }
+    @media (max-width: 640px) { .layer-grid { grid-template-columns: 1fr; } }
+    hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
+    .answer-box {
+      background: #0d1f12;
+      border: 1px solid #238636;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 20px 0;
+    }
+    .answer-box h4 { color: #3fb950; margin-bottom: 8px; font-size: 0.9rem; }
+    .answer-box p { font-size: 0.9rem; margin: 0; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <h1>STACKIT Telemetry Architecture</h1>
+  <p class="subtitle">Interview Deep Dive — How OTEL, Vector, and STACKIT services fit together · Updated March 2026</p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>The Big Picture: OTEL vs Vector — What They Each Do</h2>
+
+  <div class="callout green">
+    <p><strong>The one-line answer:</strong> OpenTelemetry is the <em>language</em> (protocol + SDK + data model). Vector is the <em>pipeline engine</em> that speaks that language and does the heavy lifting of routing, transforming, and fan-out delivery. They're not competing — they compose.</p>
+  </div>
+
+  <div class="layer-grid">
+    <div class="layer-card">
+      <h4>OpenTelemetry (OTEL)</h4>
+      <p>A CNCF standard that defines:<br><br>
+      • <strong>SDKs</strong> — instrument your app code to emit spans, metrics, log records<br>
+      • <strong>Data model</strong> — the schema for Trace, Metric, Log objects<br>
+      • <strong>OTLP protocol</strong> — the wire format (protobuf over gRPC or HTTP) for shipping that data<br>
+      • <strong>OTel Collector</strong> — a lightweight forwarder/preprocessor (optional, receiver → processor → exporter)<br><br>
+      OTEL does <em>not</em> do heavy transformation, fan-out routing, disk buffering, or backpressure management at scale. That's where Vector takes over.</p>
+    </div>
+    <div class="layer-card">
+      <h4>Vector (by Datadog, used by STACKIT)</h4>
+      <p>A high-performance Rust pipeline engine that:<br><br>
+      • <strong>Sources</strong> — ingests data: OTLP/gRPC, OTLP/HTTP, syslog, k8s logs, Kafka, etc.<br>
+      • <strong>Transforms</strong> — VRL programs: redact PII, filter, enrich, reshape events<br>
+      • <strong>Sinks</strong> — fans out to multiple destinations simultaneously<br>
+      • <strong>Buffers</strong> — disk or memory buffers with backpressure propagation<br>
+      • <strong>Acknowledgements</strong> — end-to-end delivery guarantees<br><br>
+      Vector speaks OTLP natively — it's an OTLP-in, OTLP-out capable system, but can also bridge to non-OTLP sinks (S3, OpenSearch, Kafka, etc.).</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>Full STACKIT Telemetry Architecture Diagram</h2>
+
+  <div class="diagram-wrap">
+    <div class="mermaid">
+flowchart TB
+    subgraph CustomerApps["Customer Workloads (on STACKIT SKE / VMs)"]
+        A1["App instrumented\nwith OTel SDK\n(Go / Java / Python...)"]
+        A2["k8s system logs\n(kubelet, control plane)"]
+        A3["OTel Collector\n(optional agent/sidecar)"]
+        A1 -->|"OTLP gRPC/HTTP\nlogs + traces + metrics"| A3
+        A2 -->|"k8s log scrape"| A3
+    end
+
+    subgraph STACKITPlatform["STACKIT Platform Sources"]
+        P1["STACKIT Audit Events\n(API calls, IAM changes,\nresource lifecycle)"]
+        P2["STACKIT Service Logs\n(SKE, ObjectStorage,\nNetwork, VMs)"]
+    end
+
+    subgraph TelemetryRouter["STACKIT Telemetry Router  (Vector — managed K8s service)"]
+        direction TB
+        S1["SOURCE\nOTLP gRPC/HTTP\n:4317 / :4318"]
+        S2["SOURCE\nAudit Log ingest\n(STACKIT internal)"]
+
+        T1["TRANSFORM (VRL)\nFilter · Redact PII\nEnrich · Normalize\nData sovereignty checks"]
+
+        B1["BUFFER\nDisk or memory\n+ backpressure"]
+
+        SINK_OTLP["SINK — OTLP\nCustomer's own\nbackend / Datadog /\nSplunk / New Relic"]
+        SINK_OBS["SINK — OTLP\nSTACKIT Observability\n(Argus / Grafana stack)"]
+        SINK_S3["SINK — S3\nSTACKIT Object Storage\n(archival / compliance)"]
+        SINK_LOGME["SINK — OpenSearch HTTP\nSTACKIT LogMe\n(OpenSearch + Dashboards)"]
+
+        S1 --> T1
+        S2 --> T1
+        T1 --> B1
+        B1 --> SINK_OTLP
+        B1 --> SINK_OBS
+        B1 --> SINK_S3
+        B1 --> SINK_LOGME
+    end
+
+    subgraph K8sOperator["K8s Operator (Go — what you'd build)"]
+        OP["TelemetryRouter CRD\nReconcile loop\n→ renders Vector TOML config\n→ manages Vector Deployment\n→ handles upgrades/rollbacks"]
+    end
+
+    subgraph Visualization["Visualization Layer (Customer-facing)"]
+        V1["STACKIT Observability\n(Managed Grafana +\nPrometheus + Loki + Tempo\n+ Thanos)"]
+        V2["STACKIT LogMe\n(Managed OpenSearch\n+ Fluentd +\nOpenSearch Dashboards)"]
+        V3["Customer's own tool\n(Datadog / Grafana Cloud /\nSplunk / SigNoz...)"]
+    end
+
+    subgraph STACKIT_API["STACKIT Control Plane API (REST — what you'd build)"]
+        API["POST /v1/telemetry-routers\nGET /v1/telemetry-routers/{id}\nPUT /v1/destinations/{id}\nGET /v1/sources\n...\n→ drives CRD creation/update"]
+    end
+
+    A3 -->|"OTLP\ngRPC/HTTP"| S1
+    P1 --> S2
+    P2 --> S2
+    OP -->|"watches/manages"| TelemetryRouter
+    API -->|"creates/updates CRD"| OP
+    SINK_OBS --> V1
+    SINK_LOGME --> V2
+    SINK_OTLP --> V3
+
+    style TelemetryRouter fill:#0d1f2d,stroke:#1a6fa3,color:#e1e4e8
+    style CustomerApps fill:#0d1a0d,stroke:#238636,color:#e1e4e8
+    style STACKITPlatform fill:#1a1a0d,stroke:#9a6700,color:#e1e4e8
+    style K8sOperator fill:#1a0d2a,stroke:#7c3aed,color:#e1e4e8
+    style Visualization fill:#1a0d0d,stroke:#b91c1c,color:#e1e4e8
+    style STACKIT_API fill:#0d1a2a,stroke:#1d4ed8,color:#e1e4e8
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>Signal Type Breakdown: What Goes Where</h2>
+
+  <div class="callout warn">
+    <p><strong>Key insight:</strong> ALL three signal types (logs, metrics, traces) can travel over OTLP. Vector handles all three. The question is <em>which signals STACKIT's Telemetry Router is actively routing today vs. what's on the roadmap.</em></p>
+  </div>
+
+  <h3>Logs <span class="tag orange">GA — Primary focus of Telemetry Router</span></h3>
+  <p>This is where Telemetry Router started. Specifically:</p>
+  <ul>
+    <li><strong>Audit logs</strong> — platform-generated events (IAM changes, API calls, resource lifecycle). These are compliance-critical in a sovereign cloud. The Telemetry Router is <em>replacing</em> the old STACKIT Audit Log API as of March 2026.</li>
+    <li><strong>Service logs</strong> — logs from STACKIT services (SKE, Object Storage, etc.) that customers need to see for debugging and compliance.</li>
+    <li><strong>Application logs</strong> — customer app logs shipped via OTLP SDK or via OTel Collector sidecar.</li>
+  </ul>
+  <p>All of these can land in STACKIT LogMe (OpenSearch), STACKIT Observability (Loki), S3 for archival, or a customer's external OTLP sink.</p>
+
+  <h3>Metrics <span class="tag blue">Handled separately today — roadmap for Telemetry Router</span></h3>
+  <p>Today, metrics follow a different path: Prometheus scrape model via STACKIT Observability (Argus). Customer workloads expose <code>/metrics</code> endpoints; Prometheus scrapes them; Thanos handles long-term storage; Grafana visualizes. The Telemetry Router's "name implies broader ambition" — metrics routing is likely a future phase. This is a good interview question to probe.</p>
+
+  <h3>Traces <span class="tag purple">OTLP-native — flows through Telemetry Router or direct to Tempo</span></h3>
+  <p>Distributed traces from OTel SDKs are exported via OTLP (gRPC :4317 or HTTP :4318). These can go directly to STACKIT Observability's Tempo backend, OR through the Telemetry Router if customers want fan-out (e.g., traces to both Tempo and an external tracing backend). Vector handles traces as OTLP events natively.</p>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>STACKIT's Visualization Layer — Not In-House</h2>
+
+  <div class="callout green">
+    <p><strong>Short answer:</strong> STACKIT is <em>not</em> building their own visualization tool. They run a fully managed <strong>LGTM stack</strong> (Loki + Grafana + Tempo + Mimir/Thanos) as their hosted observability product ("Observability", formerly Argus). Customers who want full control can use the Telemetry Router to ship directly to their own external tool (Datadog, Splunk, Grafana Cloud, SigNoz, etc.).</p>
+  </div>
+
+  <div class="layer-grid">
+    <div class="layer-card">
+      <h4>STACKIT Observability (Argus) — Managed LGTM Stack</h4>
+      <p>• <strong>Grafana</strong> — dashboards, alerting, explore<br>
+      • <strong>Loki</strong> — log aggregation (multi-tenant)<br>
+      • <strong>Tempo</strong> — distributed tracing storage<br>
+      • <strong>Prometheus + Thanos</strong> — metrics + long-term storage<br>
+      • <strong>Alertmanager</strong> — alert routing (supports Google Chat webhooks as of 2025)<br><br>
+      Fully managed — STACKIT handles upgrades. Customer gets Grafana instance provisioned immediately. SSO via STACKIT IAM.</p>
+    </div>
+    <div class="layer-card">
+      <h4>STACKIT LogMe — Managed OpenSearch</h4>
+      <p>• <strong>OpenSearch</strong> — full-text search, log indexing<br>
+      • <strong>Fluentd</strong> — log collection/forwarding agent<br>
+      • <strong>OpenSearch Dashboards</strong> — ELK-style log exploration<br><br>
+      Think of this as STACKIT's managed ELK/OpenSearch alternative to Loki. Customers who prefer SQL-like log queries or come from an ELK background will use this. Data stays in EU (German DCs) — GDPR compliant.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>How It All Works: Step-by-Step Data Flow</h2>
+
+  <h3>Scenario A: Customer app traces → STACKIT Observability (Tempo)</h3>
+
+  <p><strong>1. Instrument the app</strong> with OTel SDK (Go example):</p>
+<pre><code>// main.go — OTel SDK bootstrapping
+exp, _ := otlptracehttp.New(ctx,
+    otlptracehttp.WithEndpoint("telemetry-router.stackit.cloud:4318"),
+    otlptracehttp.WithHeaders(map[string]string{
+        "Authorization": "Bearer &lt;stackit-token&gt;",
+    }),
+)
+tp := trace.NewTracerProvider(trace.WithBatcher(exp))
+otel.SetTracerProvider(tp)</code></pre>
+
+  <p><strong>2. App emits OTLP traces</strong> → hits Telemetry Router's OTLP HTTP source on <code>:4318</code>.</p>
+
+  <p><strong>3. Vector routes to STACKIT Observability Tempo sink</strong> (conceptual Vector config):</p>
+<pre><code># Conceptual Vector TOML — rendered by the K8s Operator from TelemetryRouter CRD
+[sources.otlp_in]
+type = "opentelemetry"
+grpc.address = "0.0.0.0:4317"
+http.address = "0.0.0.0:4318"
+
+[transforms.enrich]
+type = "remap"
+inputs = ["otlp_in"]
+source = '''
+  # Tag with project ID for multi-tenancy routing
+  .resource.attributes.stackit_project_id = "proj-xyz789"
+  # Redact any Authorization headers from spans
+  del(.attributes.http.request.header.authorization)
+'''
+
+[sinks.observability_tempo]
+type = "opentelemetry"
+inputs = ["enrich"]
+endpoint = "https://ingest.observability.stackit.cloud:4317"
+encoding.codec = "native_json"
+
+[sinks.s3_archive]
+type = "aws_s3"
+inputs = ["enrich"]
+bucket = "customer-telemetry-archive"
+endpoint = "https://object.storage.eu-central-1.stackit.cloud"
+region = "eu-central-1"
+key_prefix = "traces/{{ "{{" }}%Y/%m/%d{{ "}}" }}/"</code></pre>
+
+  <h3>Scenario B: Platform audit logs → Customer's external SIEM</h3>
+  <p>STACKIT platform emits audit events (e.g., "user created IAM role in project X") internally. The Telemetry Router's audit source ingests these and the customer configures a destination pointing to their SIEM:</p>
+<pre><code># TelemetryRouter CRD (what a customer configures via STACKIT API/UI)
+apiVersion: telemetry.stackit.cloud/v1alpha1
+kind: TelemetryRouter
+metadata:
+  name: prod-router
+  namespace: stackit-telemetry
+spec:
+  projectId: "proj-xyz789"
+  region: "eu-central-1"
+  replicas: 2
+
+  sources:
+    - type: AUDIT_LOGS       # STACKIT platform audit events
+    - type: SERVICE_LOGS     # STACKIT service logs (SKE, object storage, etc.)
+    - type: OTLP             # Customer app telemetry (logs + traces + metrics)
+
+  transforms:
+    - name: redact-pii
+      vrl: |
+        # Strip email addresses from log bodies
+        .message = replace(string!(.message), r'\b[\w.]+@[\w.]+\b', "[REDACTED]")
+        # Ensure data stays EU — drop events tagged non-EU
+        if exists(.resource.attributes.region) {
+          assert!(.resource.attributes.region == "eu-central-1",
+                  "Non-EU data dropped for sovereignty compliance")
+        }
+
+  destinations:
+    - name: "production-siem"
+      type: OTLP
+      endpoint: "https://ingest.siem.company.com:4317"
+      secretRef: "siem-api-key"     # k8s Secret — never inline
+
+    - name: "compliance-archive"
+      type: S3
+      bucket: "audit-archive-prod"
+      endpoint: "https://object.storage.eu-central-1.stackit.cloud"
+      region: "eu-central-1"
+
+status:
+  phase: Ready
+  readyReplicas: 2
+  conditions:
+    - type: RegionCompliant
+      status: "True"</code></pre>
+
+  <h3>Scenario C: Metrics path (current — Prometheus scrape)</h3>
+<pre><code># Customer app exposes Prometheus metrics endpoint
+# Observability (Argus) scrapes it via a ServiceMonitor CRD
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-app-metrics
+  namespace: my-app
+spec:
+  selector:
+    matchLabels:
+      app: my-api
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+
+# Grafana then visualizes these via Prometheus datasource
+# Future: push-based metrics via OTLP → Telemetry Router → Mimir/Prometheus remote_write</code></pre>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>Key Interview Answers — "How Does OTEL and Vector Play Together?"</h2>
+
+  <div class="answer-box">
+    <h4>Q: Are ALL metrics/logs/traces managed with OTEL then shipped via Vector?</h4>
+    <p>Not exactly — the model is layered. Logs and traces are the primary signals flowing through the Telemetry Router today. Metrics currently flow via a separate Prometheus scrape path into STACKIT Observability. OTLP is the common protocol: OTel SDKs emit OTLP, and Vector's opentelemetry source/sink speaks OTLP natively. So: OTel defines the protocol and instruments the app; Vector is the pipeline that receives, transforms, and routes those OTLP events. They don't overlap — they compose.</p>
+  </div>
+
+  <div class="answer-box">
+    <h4>Q: Is STACKIT building their own visualization UI?</h4>
+    <p>No. STACKIT Observability is a fully managed Grafana stack (Loki, Tempo, Prometheus, Thanos). They're curating and operating best-in-class open source — not reinventing the dashboard. The Telemetry Router's job is to get the data to the right backend; visualization is handled by Grafana or by the customer's own tool.</p>
+  </div>
+
+  <div class="answer-box">
+    <h4>Q: What does the K8s Operator actually do?</h4>
+    <p>The operator watches TelemetryRouter CRDs. When a customer creates or updates one (via the STACKIT API), the operator reconciles: it renders a Vector TOML config from the CRD spec, manages the Vector Deployment/StatefulSet, handles rolling updates without dropping events (drain → upgrade → reconnect), and writes status back to the CRD. The operator is the bridge between "customer intent" (declared in the CRD) and "Vector reality" (running process with a specific TOML).</p>
+  </div>
+
+  <div class="answer-box">
+    <h4>Q: What makes STACKIT different from Datadog OPs architecturally?</h4>
+    <p>DD OPs is an enterprise cost-optimization product — the story is "route logs away from expensive backends." STACKIT's Telemetry Router is a sovereign cloud compliance primitive — every design decision flows from EU data residency and auditability. Multi-tenancy is a first-class constraint at STACKIT (one Vector config per customer, K8s operator-managed), whereas at DD, the pipeline workers are a shared fleet. Also: STACKIT is building the whole stack from scratch in Go + operator pattern; DD OPs built on top of an existing mature Vector deployment.</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <h2>The Hardest Engineering Problem: Backpressure in Multi-Tenant Routing</h2>
+
+  <div class="callout warn">
+    <p><strong>This is what to study deepest.</strong> When one customer's SIEM sink goes down, backpressure propagates: sink buffer fills → transform queue fills → source stops ACKing → the OTLP client (their app) starts getting 429s or connection drops. In a shared cluster, one bad sink can starve other customers' pipelines unless isolation is enforced.</p>
+  </div>
+
+  <p>Vector's mitigation toolset:</p>
+  <ul>
+    <li><strong>Per-sink disk buffers</strong> — isolate sink failure from the rest of the topology. Cost: disk I/O can become a bottleneck (documented cases of 500 MB/s → 120 MB/s throughput regression when disk buffer is on).</li>
+    <li><strong>Memory buffers with overflow-to-disk</strong> — faster steady-state, durable on spike. Best practice for production.</li>
+    <li><strong>End-to-end acknowledgements</strong> — source only ACKs when the sink has confirmed delivery. Prevents silent data loss.</li>
+    <li><strong>Separate Vector processes per customer</strong> — full isolation, higher resource overhead. The K8s operator makes this manageable.</li>
+    <li><strong>VRL-level drop policies</strong> — explicitly drop low-priority events when buffer pressure exceeds threshold, rather than backpressuring the source.</li>
+  </ul>
+
+  <hr>
+  <p style="font-size: 0.8rem; color: #484f58;">Sources: STACKIT Docs · Vector documentation · STACKIT Observability (Argus) product pages · Datadog OPs docs · OpenTelemetry specification · March 2026</p>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { curve: 'basis', padding: 20 },
+    fontFamily: 'monospace'
+  });
+</script>
+</body>
+</html>

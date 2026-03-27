@@ -1,0 +1,264 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus.observability.svc.cluster.local:9090
+        access: proxy
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+          exemplarTraceIdDestinations:
+            - name: trace_id
+              datasourceUid: tempo
+
+      - name: Loki
+        type: loki
+        uid: loki
+        url: http://loki.observability.svc.cluster.local:3100
+        access: proxy
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: '"trace_id":\s*"([a-f0-9]+)"'
+              name: TraceID
+              url: "$${__value.raw}"
+              urlDisplayLabel: "View Trace in Tempo"
+
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        url: http://tempo.observability.svc.cluster.local:3200
+        access: proxy
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-1m"
+            spanEndTimeShift: "1m"
+            filterByTraceID: true
+            customQuery: true
+            query: '{service_name="${__span.tags.service_name}"} | json | trace_id="${__trace.traceId}"'
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          search:
+            hide: false
+          lokiSearch:
+            datasourceUid: loki
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-config
+  namespace: observability
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'stackit-mock'
+        orgId: 1
+        folder: 'STACKIT Mock'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-price-service
+  namespace: observability
+data:
+  price-service.json: |
+    {
+      "title": "Price Service — Telemetry Overview",
+      "uid": "price-service-overview",
+      "tags": ["stackit-mock", "price-service"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "10s",
+      "time": {"from": "now-30m", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "type": "constant",
+            "current": {"value": "price-service"},
+            "hide": 2
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1, "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "type": "stat", "title": "Request Rate (req/s)",
+          "datasource": {"uid": "prometheus"},
+          "targets": [{"expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"price-service\"}[1m]))", "legendFormat": "req/s"}],
+          "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}, "unit": "reqps"}}
+        },
+        {
+          "id": 2, "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "type": "stat", "title": "Error Rate (%)",
+          "datasource": {"uid": "prometheus"},
+          "targets": [{"expr": "100 * sum(rate(http_server_request_duration_seconds_count{service_name=\"price-service\",http_response_status_code=~\"5..\"}[1m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"price-service\"}[1m]))", "legendFormat": "error %"}],
+          "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}, "unit": "percent"}}
+        },
+        {
+          "id": 3, "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "type": "stat", "title": "p99 Latency",
+          "datasource": {"uid": "prometheus"},
+          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p99"}],
+          "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.5}, {"color": "red", "value": 1}]}, "unit": "s"}}
+        },
+        {
+          "id": 4, "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "type": "stat", "title": "Active Vector Buffer",
+          "datasource": {"uid": "prometheus"},
+          "targets": [{"expr": "sum(vector_buffer_events{component_kind=\"sink\"})", "legendFormat": "buffered events"}],
+          "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]}}}
+        },
+        {
+          "id": 5, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "type": "timeseries", "title": "Request Rate by Endpoint",
+          "datasource": {"uid": "prometheus"},
+          "targets": [{"expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{service_name=\"price-service\"}[1m]))", "legendFormat": "{{http_route}}"}]
+        },
+        {
+          "id": 6, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "type": "timeseries", "title": "Latency Percentiles",
+          "datasource": {"uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.50, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p50"},
+            {"expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p95"},
+            {"expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"price-service\"}[5m])) by (le))", "legendFormat": "p99"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s"}}
+        },
+        {
+          "id": 7, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "type": "timeseries", "title": "Vector — Events Processed",
+          "datasource": {"uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (component_name) (rate(vector_component_sent_events_total[1m]))", "legendFormat": "sent: {{component_name}}"},
+            {"expr": "sum by (component_name) (rate(vector_component_received_events_total[1m]))", "legendFormat": "recv: {{component_name}}"}
+          ]
+        },
+        {
+          "id": 8, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "type": "timeseries", "title": "Vector — Buffer Utilisation",
+          "datasource": {"uid": "prometheus"},
+          "targets": [
+            {"expr": "vector_buffer_events{component_kind=\"sink\"}", "legendFormat": "{{component_name}} buffered"},
+            {"expr": "vector_buffer_discarded_events_total{component_kind=\"sink\"}", "legendFormat": "{{component_name}} dropped"}
+          ]
+        },
+        {
+          "id": 9, "gridPos": {"h": 10, "w": 24, "x": 0, "y": 20},
+          "type": "logs", "title": "Price Service Logs (via Vector → Loki)",
+          "datasource": {"uid": "loki"},
+          "targets": [{"expr": "{service_name=\"price-service\"}", "legendFormat": ""}],
+          "options": {"showTime": true, "sortOrder": "Descending", "wrapLogMessage": true, "enableLogDetails": true}
+        },
+        {
+          "id": 10, "gridPos": {"h": 10, "w": 24, "x": 0, "y": 30},
+          "type": "traces", "title": "Recent Traces (Tempo)",
+          "datasource": {"uid": "tempo"},
+          "targets": [{"queryType": "traceqlSearch", "filters": [{"id": "service-name", "operator": "=", "scope": "resource", "tag": "service.name", "value": ["price-service"], "valueType": "string"}]}]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.3.0
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+            - name: GF_AUTH_DISABLE_LOGIN_FORM
+              value: "true"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: "traceqlEditor tempoApmTable traceToMetrics"
+            - name: GF_INSTALL_PLUGINS
+              value: ""
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-config
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: data
+              mountPath: /var/lib/grafana
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-config
+          configMap:
+            name: grafana-dashboards-config
+        - name: dashboards
+          configMap:
+            name: grafana-dashboard-price-service
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP
