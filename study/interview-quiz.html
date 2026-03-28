@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STACKIT Interview Prep Quiz — Technical</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 2rem; }
+  .container { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 700; color: #a78bfa; margin-bottom: 0.25rem; }
+  .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+  .progress-bar { background: #1e293b; border-radius: 99px; height: 6px; margin-bottom: 2rem; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #7c3aed, #a78bfa); border-radius: 99px; transition: width 0.4s ease; }
+  .score-badge { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.4rem 1rem; font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem; }
+  .score-badge span { color: #a78bfa; font-weight: 700; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; transition: border-color 0.2s; }
+  .card.correct { border-color: #22c55e; background: #052e16; }
+  .card.incorrect { border-color: #ef4444; background: #1c0606; }
+  .category { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.6rem; }
+  .question { font-size: 1rem; font-weight: 600; color: #f1f5f9; margin-bottom: 1rem; line-height: 1.5; }
+  .options { display: flex; flex-direction: column; gap: 0.5rem; }
+  .option { background: #0f1117; border: 1px solid #334155; border-radius: 8px; padding: 0.75rem 1rem; cursor: pointer; font-size: 0.9rem; color: #cbd5e1; transition: all 0.15s; text-align: left; }
+  .option:hover:not(:disabled) { border-color: #7c3aed; color: #f1f5f9; background: #2e1065; }
+  .option.selected-correct { border-color: #22c55e; background: #166534; color: #bbf7d0; }
+  .option.selected-incorrect { border-color: #ef4444; background: #7f1d1d; color: #fecaca; }
+  .option.show-correct { border-color: #22c55e; color: #86efac; }
+  .option:disabled { cursor: default; }
+  .explanation { margin-top: 1rem; padding: 0.75rem 1rem; background: #0f1117; border-left: 3px solid #7c3aed; border-radius: 0 6px 6px 0; font-size: 0.875rem; color: #94a3b8; line-height: 1.6; display: none; }
+  .explanation strong { color: #a78bfa; }
+  .explanation code { background: #1e293b; padding: 0.1rem 0.35rem; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.8em; color: #f472b6; }
+  .result-panel { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 2rem; text-align: center; display: none; }
+  .result-panel h2 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+  .big-score { font-size: 3.5rem; font-weight: 800; color: #a78bfa; line-height: 1; margin: 1rem 0; }
+  .result-msg { color: #94a3b8; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.6; }
+  .btn { background: #7c3aed; color: white; border: none; border-radius: 8px; padding: 0.6rem 1.4rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #6d28d9; }
+  .nav-links { display: flex; gap: 1rem; margin-bottom: 2rem; }
+  .nav-link { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.5rem 1rem; font-size: 0.8rem; color: #94a3b8; text-decoration: none; cursor: pointer; }
+  .nav-link:hover { border-color: #7c3aed; color: #a78bfa; }
+  .tag { display: inline-block; font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; vertical-align: middle; }
+  .tag-hard { background: #7f1d1d; color: #fca5a5; }
+  .tag-med { background: #78350f; color: #fcd34d; }
+  .tag-easy { background: #052e16; color: #86efac; }
+  .missed-list { text-align: left; margin-top: 1rem; }
+  .missed-item { font-size: 0.85rem; color: #94a3b8; padding: 0.4rem 0; border-bottom: 1px solid #334155; }
+  .missed-item strong { color: #fca5a5; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>STACKIT Technical Interview Quiz</h1>
+  <p class="subtitle">Go · Kubernetes Operators · Vector · OTel — built from mock interview gaps · Mike Falcone</p>
+  <div class="nav-links">
+    <span class="nav-link" onclick="window.location.href='star-quiz.html'">→ STAR Story Matcher</span>
+    <span class="nav-link" onclick="window.location.href='otlp-quiz.html'">→ OTLP Deep Dive</span>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="score-badge">Score: <span id="scoreDisplay">0</span> / <span id="totalDisplay">0</span></div>
+
+  <div id="quizArea"></div>
+
+  <div class="result-panel" id="resultPanel">
+    <h2>Quiz Complete 🎯</h2>
+    <div class="big-score" id="bigScore"></div>
+    <div class="result-msg" id="resultMsg"></div>
+    <div class="missed-list" id="missedList"></div>
+    <br>
+    <button class="btn" onclick="resetQuiz()">Retake Quiz</button>
+  </div>
+</div>
+
+<script>
+// correct: index of the correct answer (0=A, 1=B, 2=C, 3=D)
+// Distribution: 5×A, 5×B, 5×C, 5×D — all options similar length to avoid giveaways
+const questions = [
+  // ── Go Concurrency ──────────────────────────────────────────────────────────
+  {
+    category: "Go Concurrency",
+    difficulty: "med",
+    q: "You have an in-memory map storing transform state and multiple goroutines hitting it concurrently. What is the correct way to protect it in Go, and what happens if you don't?",
+    options: [
+      "Use a channel — route all map updates through a dedicated owner goroutine. Readers send requests on a read channel and block for the response, avoiding shared memory entirely.",
+      "Go maps allow safe concurrent reads natively; only writes need synchronization. Use sync.Mutex for write operations only — leave reads unprotected since the runtime handles read concurrency.",
+      "Use sync.RWMutex: RLock/RUnlock for reads (multiple goroutines proceed simultaneously), Lock/Unlock for writes (exclusive). Without this, concurrent map access causes a data race — silent corruption or a runtime panic.",
+      "Use sync.Map from the standard library — it's purpose-built for concurrent access and handles reads and writes safely without any explicit locking in your code."
+    ],
+    correct: 2,
+    explanation: "<strong>sync.RWMutex</strong> is the idiomatic answer. <code>mu.RLock()</code> / <code>mu.RUnlock()</code> allows multiple simultaneous readers — perfect for GET handlers. <code>mu.Lock()</code> / <code>mu.Unlock()</code> is exclusive — use in POST, DELETE, and background goroutines that write status. Without it: Go maps are <em>not</em> safe for concurrent access — even concurrent reads alongside a write is undefined behavior. Go's race detector (<code>-race</code> flag) catches this in tests; in production it can panic or silently corrupt state. sync.Map (D) also works but is less idiomatic and has worse performance for this read-heavy cache pattern."
+  },
+  {
+    category: "Go Concurrency",
+    difficulty: "hard",
+    q: "Your operator goroutine is mid-way through an HTTP call to an external service when the context gets cancelled at shutdown. What happens if you ignore ctx, and what's the correct pattern?",
+    options: [
+      "Pass ctx to the HTTP call via http.NewRequestWithContext(ctx, ...) — cancellation returns ctx.Err() immediately. Ignoring it lets the goroutine run to completion, potentially writing stale state and delaying pod termination.",
+      "Set a global 'shuttingDown' boolean that goroutines poll every 100ms. This avoids context propagation overhead and keeps shutdown logic centralized in one place.",
+      "Wrap the HTTP call in defer/recover — context cancellation surfaces as a net/http panic that recover() can catch, allowing the goroutine to exit cleanly without explicit ctx handling.",
+      "Context cancellation only affects the goroutine that originally received it — child goroutines are independent processes and must be signalled separately via their own dedicated cancel channels."
+    ],
+    correct: 0,
+    explanation: "<strong>Pass ctx to every blocking call.</strong> The correct pattern: <code>req, _ := http.NewRequestWithContext(ctx, \"GET\", url, nil)</code>. When ctx is cancelled, the HTTP client returns immediately with <code>context.Canceled</code>. If you can't pass ctx, use <code>select { case &lt;-ctx.Done(): return ctx.Err(); case result := &lt;-workChan: ... }</code>. Without this, the goroutine becomes a zombie — it keeps running after shutdown, may write stale status to the k8s API, and causes the pod to hit its termination grace period rather than exiting cleanly. In controller-runtime, the ctx passed to Reconcile() is tied to the manager lifecycle."
+  },
+  {
+    category: "Go Concurrency",
+    difficulty: "med",
+    q: "What does sync.WaitGroup do and when would you use it in an operator context?",
+    options: [
+      "WaitGroup is a rate limiter that caps concurrent goroutine execution. Add(N) sets the cap, Done() releases a slot, and Wait() blocks callers until a slot is free — similar to a semaphore.",
+      "WaitGroup waits for a group of goroutines to finish: wg.Add(1) before launching, defer wg.Done() inside each goroutine, wg.Wait() to block until all complete. Use it in the drain finalizer to wait for all sink flushes before removing the finalizer.",
+      "WaitGroup serializes goroutine access to shared state — goroutines call Add(1) to acquire exclusive access and Done() to release, while others block on Wait() until the slot is available.",
+      "WaitGroup is deprecated in Go 1.21 in favor of errgroup from golang.org/x/sync, which additionally collects errors from goroutines and supports context cancellation natively."
+    ],
+    correct: 1,
+    explanation: "<strong>sync.WaitGroup</strong> is the canonical 'fan-out then wait' primitive. Pattern: <code>var wg sync.WaitGroup; wg.Add(1); go func() { defer wg.Done(); doWork() }(); wg.Wait()</code>. In operator context, this is exactly what the drain finalizer needs: when deleting a TelemetryRouter, wait for all in-flight sink flushes to complete before removing the finalizer. Without WaitGroup you have no guarantee the goroutines finished. It's also useful when reconciling multiple resources in parallel and collecting errors before updating status."
+  },
+  {
+    category: "Go Concurrency",
+    difficulty: "hard",
+    q: "What is a data race in Go and what does the -race flag actually do at the implementation level?",
+    options: [
+      "A data race: two goroutines access the same variable concurrently, at least one writing, without synchronization. The -race flag instruments memory accesses at compile time and reports races at runtime with full goroutine stack traces.",
+      "A data race is a deadlock — two goroutines holding locks and waiting for each other indefinitely. The -race flag detects these cycles by analyzing lock acquisition ordering patterns at compile time.",
+      "Data races only occur with maps and slices — primitive int and bool types are safe for concurrent access in Go due to guaranteed atomic word-sized memory operations on modern hardware.",
+      "The -race flag is a static analysis tool built into go vet. It analyzes goroutine interaction patterns without executing code and flags potential conflicts at compile time without any runtime overhead."
+    ],
+    correct: 0,
+    explanation: "<strong>Data race:</strong> two goroutines access the same memory concurrently, at least one writes, with no synchronization (mutex, channel, atomic). The result is undefined behavior — not just wrong values, but potential crashes. <code>go test -race</code> instruments all memory accesses using shadow memory — each word has shadow slots recording recent accesses. When a conflict is detected at runtime, it prints both goroutine stack traces. Key: the race detector only fires on <em>executed</em> code paths — a race in an untested branch won't be caught. Always run -race in CI."
+  },
+  // ── Kubernetes Operator ─────────────────────────────────────────────────────
+  {
+    category: "Kubernetes Operator",
+    difficulty: "hard",
+    q: "Your reconcile loop returns ctrl.Result{}, err for a region policy violation (customer added a non-EU S3 bucket). What's wrong with this and what should you do instead?",
+    options: [
+      "Nothing is wrong — errors always trigger requeues, and more retries increase the chance of eventually resolving the problem. Higher requeue rates improve reliability for all failure types.",
+      "Wrap the error with fmt.Errorf before returning so the violation message appears clearly in operator logs — the requeue behavior is correct but the observability is insufficient.",
+      "Return the error and simultaneously call r.Status().Update() to set the condition — this way both the requeue and the status update happen as close to atomically as possible.",
+      "Returning an error triggers exponential backoff requeue — but a policy violation won't self-heal by retrying. Return nil instead, set RegionCompliant: False as a status condition, and surface it through kubectl describe."
+    ],
+    correct: 3,
+    explanation: "<strong>Only return errors for transient/infrastructure failures</strong> — network timeouts, API server unavailable, missing Secret that may appear soon. For <em>business logic</em> failures like policy violations or invalid config: return <code>ctrl.Result{}, nil</code> and set a status condition. A region policy violation will never self-heal by retrying — all you get is exponential backoff spam and unnecessary queue pressure. The status condition (<code>RegionCompliant: False</code>) surfaces the failure through the standard k8s API, visible in <code>kubectl describe</code> and queryable via the STACKIT REST API."
+  },
+  {
+    category: "Kubernetes Operator",
+    difficulty: "med",
+    q: "Why does the TelemetryRouter CRD have a drain-finalizer, and what happens if you delete the CR without one?",
+    options: [
+      "Finalizers prevent the CR spec from being overwritten by concurrent reconcile goroutines. During leader election when two operators briefly run, finalizers serialize CR access to prevent conflicting updates.",
+      "Finalizers are required by controller-runtime for all CRDs — without one, the controller-manager rejects the resource at admission and returns a schema validation error.",
+      "Without a finalizer, deleting the CR kills the Vector pod immediately, dropping all in-flight events. The finalizer blocks deletion until the operator flushes per-sink buffers and confirms delivery — then removes itself so k8s can proceed.",
+      "Finalizers prevent the CRD schema definition itself from being deleted while active instances exist in the cluster, ensuring orphaned custom resources are cleaned up before schema removal."
+    ],
+    correct: 2,
+    explanation: "<strong>Finalizers are pre-deletion hooks.</strong> When you <code>kubectl delete</code> a CR with a finalizer, k8s sets <code>DeletionTimestamp</code> but does NOT delete the object yet. The operator detects <code>!DeletionTimestamp.IsZero()</code>, runs its drain logic (stop ingestion, flush buffers, confirm delivery), then removes the finalizer from the list and calls <code>r.Update(ctx, tr)</code>. Only then does k8s complete deletion. Without this, the Vector pod is killed instantly and all buffered events are lost — a clear SLA violation for a managed telemetry service."
+  },
+  {
+    category: "Kubernetes Operator",
+    difficulty: "hard",
+    q: "What are the four return modes from a controller-runtime Reconcile() and when do you use each?",
+    options: [
+      "ctrl.Result{}, nil (done, no requeue) · ctrl.Result{RequeueAfter: 5m}, nil (periodic drift check) · ctrl.Result{}, err (transient failure, exponential backoff) · ctrl.Result{Requeue: true}, nil (immediate requeue after making a change)",
+      "ctrl.Result{}, nil (success) · ctrl.Result{}, err (any failure) · ctrl.Result{Stop: true}, nil (stop watching this CR permanently) · ctrl.Result{Retry: 3}, nil (retry exactly N times with a fixed interval)",
+      "return nil, nil (success) · return nil, err (failure) · return ctrl.Requeue(), nil (periodic check) · return ctrl.Stop(), nil (terminal failure that should never be retried)",
+      "controller-runtime has only two states: success (nil error) and failure (non-nil error). The Result struct fields have no effect and are provided only for API compatibility with older controller versions."
+    ],
+    correct: 0,
+    explanation: "<strong>The four return modes:</strong> (1) <code>ctrl.Result{}, nil</code> — reconcile succeeded, only re-run on watched resource changes. (2) <code>ctrl.Result{RequeueAfter: N}, nil</code> — succeed but re-check after N duration; use for drift detection (this codebase uses 30s). (3) <code>ctrl.Result{}, err</code> — failure; controller-runtime requeues with exponential backoff. Use ONLY for transient errors. (4) <code>ctrl.Result{Requeue: true}, nil</code> — immediate requeue without backoff; use when you've made a change and need to verify it in the next loop. Never return errors for business logic — that's what status conditions are for."
+  },
+  {
+    category: "Kubernetes Operator",
+    difficulty: "med",
+    q: "Why use r.Status().Update() instead of r.Update() to write status fields on a TelemetryRouter?",
+    options: [
+      "Status().Update() sends a smaller network payload since it omits unchanged spec fields, reducing API server load and etcd write pressure on high-frequency reconcile loops.",
+      "Status is a separate subresource in k8s — Status().Update() hits the /status endpoint specifically, preventing accidental spec overwrites. It also reduces resource version conflicts compared to updating the full object.",
+      "r.Update() is deprecated for CRDs in Kubernetes 1.22+ — controller-runtime enforces Status().Update() for status changes on all custom resource types to maintain backward compatibility.",
+      "Status().Update() bypasses admission webhooks, which is required for operator-written fields since admission webhooks would otherwise reject system-generated status values as unauthorized mutations."
+    ],
+    correct: 1,
+    explanation: "<strong>Spec and status are separate subresources</strong> by design. Spec = desired state (written by users). Status = observed state (written by the controller). <code>r.Status().Update(ctx, obj)</code> hits the <code>/status</code> subresource endpoint — it can only modify status, so stale spec data in your local copy won't overwrite the live spec. A regular <code>r.Update()</code> sends the full object to the spec endpoint, risking spec drift if another actor changed spec between your read and write. Narrowing to the status subresource also reduces resource version conflicts significantly."
+  },
+  {
+    category: "Kubernetes Operator",
+    difficulty: "med",
+    q: "The reconcileDeployment function previously called r.Update() on every reconcile cycle. Why was this a problem, and what does the config hash guard fix?",
+    options: [
+      "The hash guard fixes a memory leak — repeated Update() calls on the same Deployment cause the API server to accumulate revision history objects, eventually consuming excessive etcd storage.",
+      "Without the guard, every 30s reconcile triggers a rolling restart of Vector pods — even when nothing changed — dropping in-flight events unnecessarily. The guard compares config hash, replicas, and image; only calling Update() when something actually differs.",
+      "The hash guard prevents two reconcile goroutines from updating the same Deployment simultaneously, acting as a distributed lock across operator replicas during leader election transitions.",
+      "r.Update() fails with a 429 conflict error if called more than once per minute for the same resource. The hash guard rate-limits updates to stay within the API server's per-resource write throttle."
+    ],
+    correct: 1,
+    explanation: "<strong>Idempotency is the key operator property.</strong> The reconcile loop runs on a 30s RequeueAfter timer. Without the guard: every 30s, <code>r.Update()</code> fires → Kubernetes sees a Deployment change → rolling restart of Vector pods → in-flight events dropped. With the guard: compare <code>currentHash == cfgHash && currentReplicas == replicas && image == vectorImage</code>. If all match, <code>return nil</code> — zero API calls, zero pod churn. Only when something actually changed does an Update() happen. This is 'observe → diff → act' done correctly."
+  },
+  // ── Vector Internals ────────────────────────────────────────────────────────
+  {
+    category: "Vector Internals",
+    difficulty: "med",
+    q: "A customer has 4 sinks — SIEM, S3, Grafana, and STACKIT portal. The SIEM starts responding at 30s latency. What does Vector do, and how are the other 3 sinks affected?",
+    options: [
+      "Vector pauses all 4 sinks until the SIEM recovers, using a global backpressure mechanism to prevent the faster sinks from getting ahead of the slowest one.",
+      "Vector marks the SIEM as unhealthy after 3 consecutive failures and removes it from the fan-out topology until a health check passes, preventing further event queuing on that sink.",
+      "Each sink has its own independent buffer and goroutine. The slow SIEM's buffer absorbs the backlog; when full, the when_full policy applies to that sink only. The other three sinks have separate buffers and continue at full speed, completely unaffected.",
+      "Vector applies backpressure to the OTLP source, pausing all event ingestion from the customer's cluster until the SIEM sink clears its queue and resumes normal throughput."
+    ],
+    correct: 2,
+    explanation: "<strong>Per-sink buffer isolation</strong> is Vector's key multi-tenant guarantee. Each sink block in the TOML has its own <code>[buffer]</code> config. Think of each sink as having its own <code>chan Event</code> — the fan-out dispatcher sends to each independently (non-blocking). A slow SIEM fills its channel; <code>when_full = \"drop_newest\"</code> kicks in for that sink only. The S3, Grafana, and portal goroutines have completely separate buffers and continue at full speed — this is exactly why per-sink buffers exist."
+  },
+  {
+    category: "Vector Internals",
+    difficulty: "hard",
+    q: "What are the two Vector buffer types and which should a production Telemetry Router use when delivery guarantees matter?",
+    options: [
+      "Ring buffer (overwrites oldest events when full) and queue buffer (blocks the upstream). Use ring buffers in production — they maintain a constant memory footprint and guarantee consistent pipeline latency.",
+      "In-memory buffers are fast but lost on Vector restart. Disk buffers survive restarts — events are recovered on startup. Use disk buffers for a managed service where customers pay for delivery guarantees, accepting the 3–5x latency tradeoff.",
+      "TCP-backed buffers provide reliable delivery with sequence acknowledgment. UDP buffers offer higher throughput at the cost of possible event loss. Use TCP for audit log pipelines requiring guaranteed delivery.",
+      "Synchronous buffers block the sender until the sink confirms receipt, guaranteeing at-least-once delivery. Async buffers pipeline sends without waiting. Use synchronous mode for any sink connected to a SIEM or compliance system."
+    ],
+    correct: 1,
+    explanation: "<strong>In-memory buffers</strong> (<code>type = \"memory\"</code>) are fast but volatile — if Vector restarts (operator rolling update, pod eviction, node failure), buffered events are gone. <strong>Disk buffers</strong> (<code>type = \"disk\"</code>) persist to the node's disk — Vector picks up where it left off after restart. For STACKIT's managed service, disk buffers are the right default: customers pay for delivery guarantees, and operator-triggered rolling restarts (e.g., when a destination is added) should not cause data loss. Trade-off: ~3-5x higher latency and node storage provisioning required."
+  },
+  {
+    category: "Vector Internals",
+    difficulty: "hard",
+    q: "Logs are leaving a customer's application but not appearing at their SIEM. You can't access the SIEM directly. Which Vector-internal metric do you check first and why?",
+    options: [
+      "component_received_events_total — verify Vector received the events from the OTLP source. If this counter is zero, the problem is upstream of Vector entirely.",
+      "Compare component_sent_events_total vs component_received_events_total for the SIEM sink. A gap reveals events being buffered or dropped. Then check component_discarded_events_total to confirm active event drops.",
+      "vector_process_uptime_seconds — a recent restart would explain missing events if the in-memory buffer was lost. Cross-reference restart time with the customer's reported gap window.",
+      "buffer_events — the current queue depth per sink. A non-zero value confirms the sink is the bottleneck and events are accumulating faster than the SIEM can consume them."
+    ],
+    correct: 1,
+    explanation: "<strong>The sent vs. received gap is your first signal.</strong> <code>component_sent_events_total{component_id=\"siem_sink\"}</code> vs <code>component_received_events_total{component_id=\"siem_sink\"}</code>. A gap means events are queued or dropped. Then check <code>component_discarded_events_total</code> — non-zero confirms active drops (buffer full, when_full=drop_newest). Also check <code>component_errors_total</code> for delivery failures (auth errors, connection refused). Vector exposes all of these on its Prometheus endpoint (<code>:9598/metrics</code>), exposed by the operator's Service on the metrics port."
+  },
+  {
+    category: "Vector Internals",
+    difficulty: "med",
+    q: "What is VRL's most fundamental constraint, and what does it prevent customers from doing that they might expect to do?",
+    options: [
+      "VRL is single-threaded — it processes one event at a time with no parallelism. Customers expecting concurrent transform execution will see throughput bottlenecks on high-volume pipelines.",
+      "VRL programs must be under 500 lines — the compiler rejects larger transforms. Customers needing complex logic must split them across multiple chained VRL transform steps in the TOML config.",
+      "VRL is stateless and sandboxed: no network I/O, no filesystem, no external calls, no shared state between events. Customers can't do per-event DB lookups, external API enrichment, or time-windowed aggregations like 'count errors per customer per 5 minutes'.",
+      "VRL only processes log records — it cannot modify metric data points or trace span attributes. Customers needing metric label manipulation must use Vector's native metric_tag_cardinality transform instead."
+    ],
+    correct: 2,
+    explanation: "<strong>VRL's sandbox is intentional.</strong> No network I/O = no supply chain risk (a malicious transform can't exfiltrate data). No shared state = no race conditions between concurrent event processing. No infinite loops = the compiler proves termination, giving predictable per-event latency. Practically: if a customer wants 'enrich each log with the user's subscription tier from our database' — VRL can't do it; attach that data at the SDK level instead. Time-windowed aggregations ('count errors per customer per 5 minutes') require Vector's reduce transform or a downstream TSDB."
+  },
+  // ── OTel ────────────────────────────────────────────────────────────────────
+  {
+    category: "OpenTelemetry",
+    difficulty: "easy",
+    q: "What is an OTel span, how does it link to other spans, and how do multiple spans form a trace?",
+    options: [
+      "A span is the complete record of one distributed request — each trace contains exactly one span per participating service, linked by a shared traceId with each span's parentSpanId pointing to the calling service.",
+      "A span is a log record enriched with timing data and a requestId. A trace is a time-sorted flat list of spans sharing the same requestId, set by the originating service at trace entry.",
+      "A span is the smallest unit of work: it has a traceId (shared across all spans), spanId (unique), parentSpanId (links to parent), start/end timestamps, status, and attributes. A trace is a DAG of spans rooted at the entry-point span with no parentSpanId.",
+      "A span represents a single HTTP call across service boundaries. A trace is that span plus all structured logs emitted during the request, correlated by injecting the spanId into each log record's metadata."
+    ],
+    correct: 2,
+    explanation: "<strong>Span = unit of work. Trace = the full DAG of spans.</strong> Key span fields: <code>traceId</code> (128-bit, shared across all spans), <code>spanId</code> (64-bit, unique per span), <code>parentSpanId</code> (empty on root span), <code>startTimeUnixNano</code> / <code>endTimeUnixNano</code>, <code>status</code> (OK / Error / Unset), <code>attributes</code>. The root span (entry point) spawns child spans (DB call, downstream RPC), each of which may have their own children. The waterfall view in Jaeger or Grafana Tempo is a rendering of this DAG — the widest bar is your bottleneck."
+  },
+  {
+    category: "OpenTelemetry",
+    difficulty: "hard",
+    q: "A customer sees only 1 in 10 traces making it to their SIEM. What are your first three hypotheses and how do you investigate each?",
+    options: [
+      "1) SIEM is rate-limiting at ~10 RPS — check for 429s in Vector's component_errors_total. 2) Vector's disk buffer is full and actively dropping — check buffer_events. 3) The customer's k8s cluster only deploys the OTel collector DaemonSet on 10% of nodes.",
+      "The OTel SDK has head-based sampling at 10% (TraceIdRatioBased) — check SDK config and OTEL_TRACES_SAMPLER env var. Or a VRL filter passes only error traces — check the transform TOML. Or some services (Go apps especially) lack OTel instrumentation entirely.",
+      "1) Network packet loss at 90% between Vector and SIEM — run a packet capture on the Vector pod. 2) Vector is OOM-killing and losing in-memory buffers. 3) The SIEM has a strict 10s inactivity timeout, rejecting late-arriving span batches.",
+      "1) The OTLP export batch interval is too large, causing timeout-based drops. 2) Customer is using HTTP/JSON on 4318 instead of gRPC on 4317, introducing extra serialization overhead. 3) TLS cert expiry is causing 90% of connections to fail silently with no logged error."
+    ],
+    correct: 1,
+    explanation: "<strong>Start with sampling — it's the most common '1 in N' trace cause.</strong> (1) <strong>Sampling config</strong>: <code>TraceIdRatioBased(0.1)</code> = exactly 10% sampled — near-perfect fingerprint for this symptom. Check <code>OTEL_TRACES_SAMPLER</code> env var or SDK init code. (2) <strong>Filter config</strong>: a VRL rule like <code>if .status != \"Error\" { abort }</code> passes only error traces — if 10% of requests error, you see 10% of traces. Check Vector TOML transforms. (3) <strong>Instrumentation gaps</strong>: Go's auto-instrumentation is not fully mature. If a service has no OTel SDK configured, its spans are missing from traces. Also check <code>component_discarded_events_total</code> in Vector metrics."
+  },
+  {
+    category: "OpenTelemetry",
+    difficulty: "hard",
+    q: "What is W3C TraceContext and why does it matter specifically for traces flowing through Vector's pipeline?",
+    options: [
+      "W3C TraceContext is the OTLP schema versioning standard — operators must verify Vector supports the current schema to avoid silent data truncation on newer trace attributes.",
+      "W3C TraceContext is a browser security header that prevents cross-origin trace injection. It applies only to frontend applications sending traces directly to the Telemetry Router from browser SDKs.",
+      "W3C TraceContext (traceparent header) propagates traceId and spanId between services. If Vector strips or modifies these fields, spans before and after the router appear as disconnected traces, breaking root-cause analysis in the SIEM.",
+      "W3C TraceContext applies only to HTTP-based traces — gRPC traces use the grpc-trace-bin binary header format, which Vector handles automatically without any configuration."
+    ],
+    correct: 2,
+    explanation: "<strong>W3C TraceContext</strong> defines the <code>traceparent</code> header: <code>00-{traceId}-{spanId}-{flags}</code>. When a customer's trace flows through Vector, Vector must pass OTLP trace data through without modifying <code>traceId</code> or <code>parentSpanId</code>. If a VRL transform accidentally deletes trace context fields, spans before Vector and spans after Vector lose their parent-child relationship — appearing as separate disconnected traces in the SIEM. This breaks root-cause analysis. When debugging trace gaps, always verify: does the OTLP payload out of Vector have the same <code>traceId</code> as what went in?"
+  },
+  {
+    category: "OpenTelemetry",
+    difficulty: "easy",
+    q: "OTLP/gRPC uses port 4317, OTLP/HTTP uses port 4318. A customer's app is behind a corporate TLS-terminating proxy. Which transport should they use and why?",
+    options: [
+      "Use gRPC on 4317 — gRPC's TLS negotiation is transparent to terminating proxies, and the binary protobuf encoding significantly reduces payload size compared to HTTP/JSON.",
+      "Use HTTP/JSON on 4318 — corporate proxies typically support HTTP/1.1 but not HTTP/2, which gRPC requires. OTLP/HTTP works through any standard HTTP proxy without configuration changes.",
+      "Use a VPN tunnel to bypass the proxy — neither OTLP transport is designed for TLS-terminating proxy environments, and both will fail with 502 errors without direct connectivity.",
+      "The transport choice has no impact in this scenario — both ports 4317 and 4318 handle TLS termination identically since the TelemetryRouter's Vector service exposes them with the same TLS configuration."
+    ],
+    correct: 1,
+    explanation: "<strong>gRPC requires HTTP/2</strong>. Many corporate proxies (Squid, Zscaler, legacy F5) don't support HTTP/2 or actively downgrade it — causing gRPC connections to fail silently or with confusing errors. <strong>OTLP/HTTP on 4318</strong> uses HTTP/1.1 (or HTTP/2 if available) and works through any standard HTTP proxy. The TelemetryRouter's Vector Service listens on both ports by default — customers just point their SDK exporter at 4318 instead of 4317. Rule of thumb: gRPC = better performance, HTTP = better compatibility."
+  },
+  {
+    category: "OpenTelemetry",
+    difficulty: "med",
+    q: "What is head-based vs. tail-based sampling in OTel, and which does a TraceIdRatioBased sampler implement?",
+    options: [
+      "Head-based sampling buffers the complete trace, then applies policy after all spans arrive. TraceIdRatioBased is head-based. Tail-based makes the decision at span creation by inspecting the incoming traceId hash.",
+      "Head-based and tail-based are the same mechanism — both use a traceId hash to make a deterministic keep/drop decision. The difference is only in where the sampler runs: SDK vs. collector.",
+      "Head-based sampling decides at trace start (root span creation) — TraceIdRatioBased hashes the traceId immediately and keeps exactly N%. Tail-based buffers the complete trace first, then applies policy like 'always keep error traces'.",
+      "Head-based sampling is performed by the OTel Collector at the cluster edge. Tail-based sampling runs in the OTel SDK inside the application. They cannot be combined in the same pipeline."
+    ],
+    correct: 2,
+    explanation: "<strong>Head-based</strong>: decision made at trace start. <code>TraceIdRatioBased(0.1)</code> hashes the traceId — deterministically keeping 10%. Fast, low overhead, but drops traces that later turn out interesting (errors, slow requests). <strong>Tail-based</strong>: buffers the complete trace in an agent/collector, then applies policy — 'keep all traces with status=Error', 'keep all traces > 2s'. More useful for debugging, but requires significant buffer memory and adds latency. The OTel Collector has a <code>tail_sampling</code> processor. For the STACKIT Router context, customers using TraceIdRatioBased at 10% is the most common cause of '1 in 10 traces' symptoms."
+  },
+  {
+    category: "OpenTelemetry",
+    difficulty: "hard",
+    q: "A customer is migrating a Go/Java/Python stack to OTLP. They ask why Go is more effort than Java. What's the accurate explanation?",
+    options: [
+      "Go auto-instrumentation is fully mature and equivalent to Java — all three languages require only adding an SDK dependency and setting OTEL_EXPORTER_OTLP_ENDPOINT before emitting traces automatically.",
+      "Go lacks the JVM-style bytecode manipulation that enables Java/Python zero-code auto-instrumentation. The OTel Go SDK requires manual span creation. Java/Python teams set env vars and get traces; Go teams need developers to add tracer.Start() calls throughout the codebase.",
+      "Go auto-instrumentation requires a eBPF kernel agent available only on Linux 5.8+ nodes. Java uses a JVM agent and Python uses a sitecustomize hook, both of which work on any OS.",
+      "Go instrumentation is blocked by Go's strict type system — the OTel SDK must be recompiled for each major Go version, adding maintenance overhead that Java and Python auto-instrumentation avoids entirely."
+    ],
+    correct: 1,
+    explanation: "<strong>Go's runtime doesn't support bytecode injection</strong> like the JVM, so 'attach an agent and get traces for free' doesn't exist. The <strong>OTel Go SDK</strong> requires: <code>tracer := otel.Tracer(\"my-service\"); ctx, span := tracer.Start(ctx, \"op\"); defer span.End()</code>. Java and Python teams: add a dependency, set env vars — done. Go teams: engineering time per service to add span calls. In practice, use instrumentation libraries (net/http middleware, gRPC interceptors, database drivers) to capture the most important spans with less manual effort. Always check whether Go services have been manually instrumented when debugging missing traces in a mixed stack."
+  }
+];
+
+let answered = 0;
+let correct = 0;
+let missedQuestions = [];
+let total = questions.length;
+
+function renderQuiz() {
+  const area = document.getElementById('quizArea');
+  document.getElementById('totalDisplay').textContent = total;
+  area.innerHTML = questions.map((q, i) => `
+    <div class="card" id="card-${i}">
+      <div class="category">${q.category} &nbsp;
+        <span class="tag tag-${q.difficulty === 'hard' ? 'hard' : q.difficulty === 'med' ? 'med' : 'easy'}">
+          ${q.difficulty === 'hard' ? '🔴 Hard' : q.difficulty === 'med' ? '🟡 Medium' : '🟢 Easy'}
+        </span>
+      </div>
+      <div class="question">Q${i+1}. ${q.q}</div>
+      <div class="options">
+        ${q.options.map((opt, j) => `
+          <button class="option" id="opt-${i}-${j}" onclick="answer(${i}, ${j})">
+            <span style="color:#64748b;margin-right:0.5rem">${String.fromCharCode(65+j)}.</span> ${opt}
+          </button>
+        `).join('')}
+      </div>
+      <div class="explanation" id="exp-${i}">${q.explanation}</div>
+    </div>
+  `).join('');
+  updateProgress();
+}
+
+function answer(qi, oi) {
+  const q = questions[qi];
+  const card = document.getElementById(`card-${qi}`);
+  for (let j = 0; j < q.options.length; j++) {
+    document.getElementById(`opt-${qi}-${j}`).disabled = true;
+  }
+  const selected = document.getElementById(`opt-${qi}-${oi}`);
+  const correctBtn = document.getElementById(`opt-${qi}-${q.correct}`);
+  if (oi === q.correct) {
+    selected.classList.add('selected-correct');
+    card.classList.add('correct');
+    correct++;
+  } else {
+    selected.classList.add('selected-incorrect');
+    correctBtn.classList.add('show-correct');
+    card.classList.add('incorrect');
+    missedQuestions.push({ num: qi + 1, topic: q.category, q: q.q.substring(0, 80) + '...' });
+  }
+  document.getElementById(`exp-${qi}`).style.display = 'block';
+  answered++;
+  document.getElementById('scoreDisplay').textContent = correct;
+  updateProgress();
+  if (answered === total) setTimeout(showResult, 600);
+}
+
+function updateProgress() {
+  document.getElementById('progressFill').style.width = (answered / total * 100) + '%';
+}
+
+function showResult() {
+  const panel = document.getElementById('resultPanel');
+  panel.style.display = 'block';
+  const pct = Math.round(correct / total * 100);
+  document.getElementById('bigScore').textContent = `${correct} / ${total}`;
+  let msg = '';
+  if (pct >= 90) msg = "🏆 Interview-ready. You have the precision on Go concurrency, operator patterns, and OTel that this role demands. Focus on articulating these answers out loud — knowledge alone isn't enough.";
+  else if (pct >= 75) msg = "💪 Strong foundation. Review the questions you missed — especially the reconcile error vs. nil distinction and VRL's stateless constraint. Those are high-probability interview topics.";
+  else if (pct >= 55) msg = "📚 Solid progress. The gaps are in the details — per-sink buffer isolation, W3C TraceContext, and controller-runtime return values. Read the explanations carefully and retake.";
+  else msg = "🔄 Keep drilling. Focus on three areas first: (1) sync.RWMutex pattern, (2) reconcile loop error handling, (3) Vector per-sink buffer isolation. Those three concepts cover the most likely interview questions.";
+  document.getElementById('resultMsg').textContent = msg;
+
+  if (missedQuestions.length > 0) {
+    const ml = document.getElementById('missedList');
+    ml.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:0.5rem;margin-top:1rem;">📋 Questions to review:</p>' +
+      missedQuestions.map(m => `<div class="missed-item"><strong>Q${m.num} (${m.topic})</strong> — ${m.q}</div>`).join('');
+  }
+  panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+function resetQuiz() {
+  answered = 0; correct = 0; missedQuestions = [];
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('scoreDisplay').textContent = 0;
+  renderQuiz();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+renderQuiz();
+</script>
+</body>
+</html>

@@ -17,7 +17,7 @@ High level
 
 OTLP - Datadog
 
-- ways to get Otel
+- ways to get Otel to datadog
   - **agent** - direct otlp ingestion
   - **datadog otel collector** - embedded in the agent (great for fleet mgmt)
   - **otlp endpoint** - send it directly to your Datadog account

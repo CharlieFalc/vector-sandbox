@@ -59,16 +59,18 @@
 </div>
 
 <script>
+// correct: 0=A, 1=B, 2=C, 3=D
+// Distribution: 3×A, 3×B, 3×C, 3×D — options balanced in length to avoid giveaways
 const questions = [
   {
     category: "OTLP Fundamentals",
     difficulty: "easy",
     q: "What does OTLP stand for and what problem does it solve?",
     options: [
-      "OpenTelemetry Log Protocol — a format for structured log shipping only",
-      "OpenTelemetry Protocol — a vendor-neutral wire format for logs, metrics, and traces over a single standard transport",
-      "Open Transport Layer Protocol — a replacement for HTTP/2 in observability stacks",
-      "OpenTelemetry Logging Pipe — a sidecar pattern for Kubernetes log collection"
+      "OpenTelemetry Log Protocol — a standardized format for structured log shipping, similar to the Common Log Format but with JSON encoding and schema versioning built in.",
+      "OpenTelemetry Protocol — a vendor-neutral wire format for logs, metrics, and traces over a single standard transport, replacing per-vendor proprietary agent formats.",
+      "Open Transport Layer Protocol — a replacement for HTTP/2 in observability stacks that adds native support for streaming telemetry data over persistent connections.",
+      "OpenTelemetry Logging Pipe — a sidecar pattern for Kubernetes that collects stdout/stderr from all containers and forwards them to a central aggregation endpoint."
     ],
     correct: 1,
     explanation: "<strong>OTLP (OpenTelemetry Protocol)</strong> is the wire format defined by the OpenTelemetry project. Its key value: one protocol covers all three signal types (logs, metrics, traces) using Protocol Buffers over gRPC or HTTP/JSON. Before OTLP, every vendor had a proprietary agent format — Datadog agent, Prometheus exposition format, Zipkin JSON, etc. OTLP lets you instrument once and route anywhere, which is exactly what the Telemetry Router is built on."
@@ -78,143 +80,143 @@ const questions = [
     difficulty: "med",
     q: "OTLP supports two transports. What are they and when would you choose each?",
     options: [
-      "TCP and UDP — choose UDP for low-latency, TCP for reliability",
-      "gRPC (protobuf binary) and HTTP/JSON — gRPC for high-throughput internal services, HTTP/JSON for browser clients or firewall-restricted environments",
-      "WebSocket and REST — WebSocket for streaming, REST for batch",
-      "Kafka and gRPC — Kafka for fan-out, gRPC for point-to-point"
+      "gRPC/protobuf (port 4317) for high-throughput internal service-to-service, HTTP/JSON (port 4318) for browser clients or proxy-restricted environments — gRPC requires HTTP/2, HTTP/JSON works with any HTTP/1.1 proxy.",
+      "TCP and UDP — TCP for reliable ordered delivery with retransmission, UDP for high-frequency metrics where occasional packet loss is acceptable and latency is the priority.",
+      "WebSocket and REST — WebSocket for streaming real-time traces where low latency matters, REST for batch log and metric exports on a configurable interval.",
+      "Kafka and gRPC — Kafka for durable fan-out to multiple consumers, gRPC for point-to-point low-latency delivery to a single backend system."
     ],
-    correct: 1,
-    explanation: "<strong>gRPC/protobuf</strong> is the primary transport: binary encoding means ~3–10x smaller payloads than JSON, bidirectional streaming supports back-pressure signaling, and HTTP/2 multiplexing allows many concurrent streams over one connection. Use it for service-to-service within a cluster. <strong>HTTP/JSON (OTLP/HTTP)</strong> uses the same proto schema but JSON-encoded over HTTP/1.1 — useful when the client is behind a proxy that doesn't support HTTP/2, or when integrating with legacy tools. Vector's <code>opentelemetry</code> source accepts both on ports 4317 (gRPC) and 4318 (HTTP)."
+    correct: 0,
+    explanation: "<strong>gRPC/protobuf</strong> is the primary transport: binary encoding means ~3–10x smaller payloads than JSON, bidirectional streaming supports back-pressure signaling, and HTTP/2 multiplexing allows many concurrent streams. Use it for service-to-service within a cluster. <strong>HTTP/JSON (OTLP/HTTP)</strong> uses the same proto schema but JSON-encoded over HTTP/1.1 — useful when the client is behind a proxy that doesn't support HTTP/2. Vector's <code>opentelemetry</code> source accepts both on ports 4317 (gRPC) and 4318 (HTTP)."
   },
   {
     category: "Signal Types",
     difficulty: "med",
-    q: "Name the three OTLP signal types. For a Kubernetes pod crash, which signal type(s) would carry the evidence?",
+    q: "Name the three OTLP signal types. For a Kubernetes pod crash, which signal type(s) carry the evidence?",
     options: [
-      "Logs, metrics, traces. Only logs — crash output goes to stderr which becomes a log record.",
-      "Logs, metrics, traces. All three: logs contain the panic/error message, metrics show memory/CPU spikes before the crash, traces show the in-flight request that triggered the fault.",
-      "Logs, events, alerts. Events are the primary signal for infrastructure failures.",
-      "Spans, counters, structured logs. Only spans, since they represent the execution path."
+      "Logs, metrics, traces. Only logs — crash output goes to stderr which becomes a structured log record. Metrics and traces require the app to be running and can't capture a crash after the fact.",
+      "Logs, events, alerts. Events are the primary signal for infrastructure failures like OOM kills, with logs providing human-readable context and alerts triggering operational response.",
+      "Spans, counters, structured logs. Only spans — they represent the execution path and contain the error status and exception attributes that identify the root cause of a crash.",
+      "Logs, metrics, traces. All three: logs capture the panic/stack trace, metrics show memory or CPU spikes before the crash, and traces show the in-flight request that triggered the fault."
     ],
-    correct: 1,
-    explanation: "The three signal types are <strong>logs</strong> (timestamped text/structured records), <strong>metrics</strong> (numerical measurements over time), and <strong>traces</strong> (distributed request flows composed of spans). For a pod crash: <strong>logs</strong> capture the panic message and stack trace; <strong>metrics</strong> (<code>container_memory_working_set_bytes</code>, OOM events) show resource pressure before the crash; <strong>traces</strong> may show the inflight RPC that triggered the fault. This is why OTLP's unified model matters — you can correlate all three by <code>trace_id</code> and <code>resource.attributes</code>."
+    correct: 3,
+    explanation: "The three signal types are <strong>logs</strong> (timestamped text/structured records), <strong>metrics</strong> (numerical measurements over time), and <strong>traces</strong> (distributed request flows composed of spans). For a pod crash: <strong>logs</strong> capture the panic message and stack trace; <strong>metrics</strong> (<code>container_memory_working_set_bytes</code>, OOM events) show resource pressure before the crash; <strong>traces</strong> show the in-flight RPC that triggered the fault. This is why OTLP's unified model matters — you can correlate all three by <code>trace_id</code> and <code>resource.attributes</code>."
   },
   {
     category: "Proto Schema",
     difficulty: "hard",
-    q: "In the OTLP proto schema, what is the hierarchy for log data?",
+    q: "In the OTLP proto schema, what is the correct hierarchy for log data?",
     options: [
-      "LogRecord → LogBatch → ExportRequest",
-      "ExportLogsServiceRequest → ResourceLogs → ScopeLogs → LogRecord",
-      "OTLPPayload → ServiceLogs → InstrumentationLogs → LogEntry",
-      "LogStream → LogGroup → LogLine → LogAttribute"
+      "LogRecord → LogBatch → ExportLogsServiceRequest — individual records are grouped into batches, and batches are wrapped in the top-level RPC request payload sent to the collector.",
+      "ExportLogsServiceRequest → ResourceLogs → ScopeLogs → LogRecord — resource attributes are shared across all records in a group, avoiding repetition per record.",
+      "OTLPPayload → ServiceLogs → InstrumentationLogs → LogEntry — the service level groups by microservice name, instrumentation level groups by SDK library version.",
+      "LogStream → LogGroup → LogLine → LogAttribute — this hierarchy mirrors the CloudWatch model that OTLP was designed to be compatible with for AWS migration paths."
     ],
     correct: 1,
-    explanation: "The OTLP log proto hierarchy is: <code>ExportLogsServiceRequest</code> (the top-level RPC payload) → <code>ResourceLogs[]</code> (grouped by resource — e.g., one k8s node) → <code>ScopeLogs[]</code> (grouped by instrumentation scope — e.g., the library that produced them) → <code>LogRecord[]</code> (the individual records). <strong>Resource</strong> attributes (<code>k8s.pod.name</code>, <code>service.name</code>) live at the ResourceLogs level and are shared across all records in the group — this is a key optimization: you don't repeat them per record. Understanding this hierarchy helps when writing Vector VRL transforms that need to access <code>.resource.attributes</code>."
+    explanation: "The OTLP log proto hierarchy: <code>ExportLogsServiceRequest</code> (top-level RPC payload) → <code>ResourceLogs[]</code> (grouped by resource, e.g. one k8s node) → <code>ScopeLogs[]</code> (grouped by instrumentation scope, e.g. the library that produced them) → <code>LogRecord[]</code> (individual records). <strong>Resource</strong> attributes (<code>k8s.pod.name</code>, <code>service.name</code>) live at the ResourceLogs level and are shared — you don't repeat them per record. Understanding this hierarchy helps when writing VRL transforms that need to access <code>.resource.attributes</code>."
   },
   {
     category: "Proto Schema",
     difficulty: "hard",
     q: "What is the purpose of the 'Resource' object in OTLP, and how does it differ from 'Attributes' on a LogRecord?",
     options: [
-      "Resource and Attributes are interchangeable — both are key-value maps attached to each signal.",
-      "Resource describes the entity producing the data (e.g., the k8s pod/service) and is shared across a batch of signals. Attributes describe the specific signal instance (e.g., HTTP status code, user ID).",
-      "Resource is for infrastructure metadata (cloud region, instance type). Attributes are for application-level data. Both are mandatory.",
-      "Resource is deprecated in OTLP v2 in favor of Scope attributes."
+      "Resource and Attributes are interchangeable — both are key-value maps attached to each signal, and the distinction exists only for organizational purposes in the proto schema.",
+      "Resource is for infrastructure metadata like cloud region and instance type. Attributes are for application-level metadata. Both are mandatory fields and must be present on every OTLP payload.",
+      "Resource describes the entity producing the telemetry (e.g., the k8s pod or service) and is shared across a batch. LogRecord Attributes describe the specific event (e.g., http.status_code, user.id). VRL accesses them at different paths.",
+      "Resource is deprecated in OTLP v2 in favor of Scope-level attributes, which provide the same producer metadata while reducing payload nesting and proto schema complexity."
     ],
-    correct: 1,
-    explanation: "<strong>Resource</strong> (e.g., <code>service.name=my-app</code>, <code>k8s.pod.name=my-app-7d9f</code>, <code>cloud.region=eu-central-1</code>) describes the <em>producer</em> of telemetry — it's invariant across all signals from that entity in a batch. <strong>Attributes/LogRecord.attributes</strong> (e.g., <code>http.method=POST</code>, <code>db.statement=SELECT...</code>) describe the individual observation. This distinction matters in STACKIT's Telemetry Router because: (1) region compliance checks run against <code>resource.cloud.region</code>, not individual record attributes; (2) Vector VRL accesses them at different paths (<code>.resource.attributes</code> vs <code>.attributes</code>); (3) PII redaction must cover both levels."
+    correct: 2,
+    explanation: "<strong>Resource</strong> (e.g., <code>service.name=my-app</code>, <code>k8s.pod.name=my-app-7d9f</code>, <code>cloud.region=eu-central-1</code>) describes the <em>producer</em> of telemetry — invariant across all signals from that entity in a batch. <strong>LogRecord.attributes</strong> (e.g., <code>http.method=POST</code>, <code>db.statement=SELECT...</code>) describe the individual observation. For STACKIT: region compliance checks run against <code>resource.cloud.region</code>; VRL accesses them at <code>.resource.attributes</code> vs <code>.attributes</code>; PII redaction must cover both levels."
   },
   {
     category: "Vector Framework",
     difficulty: "med",
-    q: "In Vector's topology model, what are Sources, Transforms, and Sinks? Give a concrete example of each for the Telemetry Router.",
+    q: "In Vector's topology model, what are Sources, Transforms, and Sinks? Give a concrete Telemetry Router example of each.",
     options: [
-      "Sources = Kafka topics, Transforms = Kafka Streams processors, Sinks = Kafka consumers",
-      "Sources = data ingestion points (e.g., OTLP gRPC receiver), Transforms = processing steps (e.g., VRL for PII redaction), Sinks = delivery destinations (e.g., S3 bucket, SIEM endpoint)",
-      "Sources = databases, Transforms = SQL queries, Sinks = output files",
-      "Sources = Prometheus scrapers, Transforms = PromQL queries, Sinks = Grafana dashboards"
+      "Sources = Kafka topics, Transforms = Kafka Streams processors, Sinks = Kafka consumer groups — Vector wraps the Kafka ecosystem with a unified config layer.",
+      "Sources = databases (Postgres, MySQL), Transforms = SQL-based field mapping queries, Sinks = output file systems. Vector's primary use case is ETL between databases.",
+      "Sources = Prometheus scrapers that pull metrics on a configurable interval, Transforms = PromQL expressions for aggregation, Sinks = Grafana dashboards for visualization.",
+      "Sources = data ingestion points (e.g., OTLP receiver on 4317/4318), Transforms = processing steps (e.g., VRL for PII redaction, enrichment), Sinks = delivery destinations (e.g., S3, SIEM via OTLP). Each sink has its own buffer for isolation."
     ],
-    correct: 1,
-    explanation: "Vector's three primitives: <strong>Sources</strong> ingest data (<code>type = \"opentelemetry\"</code> on ports 4317/4318 for the Telemetry Router). <strong>Transforms</strong> are stateless or stateful processing steps — VRL (Vector Remap Language) transforms are the main tool: remap fields, filter records, redact PII, enrich with metadata. <strong>Sinks</strong> deliver to destinations: <code>aws_s3</code>, <code>opentelemetry</code> (OTLP egress), <code>elasticsearch</code>, etc. Each sink has its own <code>[buffer]</code> block which is the isolation mechanism — a slow sink's buffer filling up never blocks other sinks."
+    correct: 3,
+    explanation: "Vector's three primitives: <strong>Sources</strong> ingest data (<code>type = \"opentelemetry\"</code> on ports 4317/4318 for the Telemetry Router). <strong>Transforms</strong> are processing steps — VRL transforms remap fields, filter records, redact PII, and enrich with metadata. <strong>Sinks</strong> deliver to destinations: <code>aws_s3</code>, <code>opentelemetry</code> (OTLP egress), <code>elasticsearch</code>, etc. Each sink has its own <code>[buffer]</code> block — a slow sink's buffer filling up never blocks other sinks."
   },
   {
     category: "Vector Framework",
     difficulty: "hard",
-    q: "A customer's SIEM sink starts taking 30+ seconds to respond. What happens in the Telemetry Router's Vector pipeline, and how is isolation maintained?",
+    q: "A customer's SIEM sink starts taking 30+ seconds to respond. What happens in Vector's pipeline, and how are the other sinks protected?",
     options: [
-      "The entire pipeline pauses until the SIEM responds, since Vector processes events serially.",
-      "Vector's per-sink buffer absorbs the backlog. When the buffer (max_events) fills, it applies the when_full policy (drop_newest or block). Other sinks are unaffected because each has its own independent buffer and goroutine.",
-      "Vector automatically switches to the next available sink and marks the SIEM as unhealthy.",
-      "The gRPC source starts rejecting new connections until the SIEM recovers."
+      "Vector's per-sink buffer absorbs the SIEM backlog. When the buffer fills, the when_full policy applies (drop_newest or block). Other sinks are unaffected — each has its own independent buffer and goroutine processing events at full speed.",
+      "The entire pipeline pauses until the SIEM responds. Vector uses a global event queue so all sinks share throughput — a degraded sink reduces delivery speed uniformly across all configured destinations.",
+      "Vector automatically removes the SIEM from the active fan-out, routing all events to the remaining sinks. The SIEM is re-added automatically once its health check endpoint returns 200.",
+      "Vector applies upstream backpressure to the OTLP gRPC source, signalling the customer's application to slow its emit rate until the SIEM sink drains its queue to below the high-watermark threshold."
     ],
-    correct: 1,
-    explanation: "Each Vector sink has an independent <code>[buffer]</code> block. For the slow SIEM: <code>type = \"memory\"</code>, <code>max_events = 10000</code>, <code>when_full = \"drop_newest\"</code>. When the SIEM is slow, events queue in <em>that sink's buffer only</em>. When it fills, <code>drop_newest</code> discards incoming events rather than applying backpressure upstream — this is the deliberate trade-off between completeness and pipeline health. The S3 sink and Observability sink have completely separate buffers and goroutines; they continue processing at full speed. In Go, this is modeled as each sink having its own <code>chan *LogRecord</code> — the fan-out dispatcher does a non-blocking send to each, so no sink can block any other."
+    correct: 0,
+    explanation: "Each Vector sink has an independent <code>[buffer]</code> block. For the slow SIEM: events queue in <em>that sink's buffer only</em>. When it fills, <code>drop_newest</code> discards incoming events rather than blocking upstream — a deliberate trade-off between completeness and pipeline health. The S3 sink and other sinks have completely separate buffers and goroutines; they continue at full speed. In Go terms, each sink has its own <code>chan Event</code> — the fan-out dispatcher does a non-blocking send to each, so no sink can block any other."
   },
   {
     category: "Vector Framework",
     difficulty: "med",
-    q: "What is VRL (Vector Remap Language) and why is it preferable to running arbitrary Lua or WASM transforms in a telemetry pipeline?",
+    q: "What is VRL (Vector Remap Language) and why is it preferable to arbitrary Lua or WASM transforms in a sovereign cloud telemetry pipeline?",
     options: [
-      "VRL is a superset of JavaScript that runs in a V8 sandbox — faster than Lua but less secure.",
-      "VRL is a purpose-built, sandboxed functional language: no network access, no filesystem, no infinite loops possible. It's compiled to bytecode at startup, type-safe, and designed specifically for telemetry field manipulation.",
-      "VRL stands for Vector Runtime Library — it's a Go package for building custom Vector plugins.",
-      "VRL is a YAML-based DSL for defining routing rules without any code."
+      "VRL is a superset of JavaScript running in a V8 sandbox — faster than Lua due to JIT compilation, but slightly less sandboxed since V8 allows limited DOM API access through the runtime.",
+      "VRL stands for Vector Runtime Library — it's a Go package customers import to write custom Vector source and sink plugins with native performance and access to all Vector internal APIs.",
+      "VRL is a purpose-built sandboxed DSL: no network I/O, no filesystem, no infinite loops, compiled to bytecode at startup. It's type-safe and designed specifically for telemetry field manipulation without side effects.",
+      "VRL is a YAML-based routing DSL for defining fan-out rules and sink priorities without any Turing-complete programming — simpler than Lua but limited to conditional routing, not transformation."
     ],
-    correct: 1,
-    explanation: "<strong>VRL</strong> is a domain-specific language built into Vector. Its key properties for a sovereign cloud context: (1) <strong>No side effects</strong> — VRL programs cannot make network calls or read files, eliminating a whole class of supply-chain risks. (2) <strong>Termination guarantee</strong> — the compiler rejects programs that could loop infinitely, giving predictable latency. (3) <strong>Type safety</strong> — field access failures are caught at compile time, not at 2am during a spike. (4) <strong>Performance</strong> — compiled to bytecode once at startup, not interpreted per-record. For STACKIT's compliance use case, VRL's sandbox is important: PII redaction logic runs without risk of exfiltrating data through a transform."
+    correct: 2,
+    explanation: "<strong>VRL</strong> is a domain-specific language built into Vector. Key properties for a sovereign cloud: (1) <strong>No side effects</strong> — can't make network calls or read files, eliminating supply-chain risk. (2) <strong>Termination guarantee</strong> — the compiler rejects programs that could loop infinitely, giving predictable per-event latency. (3) <strong>Type safety</strong> — field access failures caught at compile time. (4) <strong>Performance</strong> — compiled to bytecode once at startup. For STACKIT's compliance use case, the sandbox means PII redaction logic can't exfiltrate data through a transform."
   },
   {
     category: "Compliance & Sovereignty",
     difficulty: "hard",
-    q: "STACKIT is a sovereign cloud. A customer tries to add an S3 destination in us-east-1 (AWS Virginia). Where in the system should this be blocked, and at which layers?",
+    q: "A STACKIT customer tries to add an S3 destination in us-east-1 (AWS Virginia). Where should this be blocked and at which system layers?",
     options: [
-      "Only at the REST API layer — validate the region on POST /destinations and return 422 if non-EU.",
-      "At two layers: (1) REST API returns 422 Unprocessable Entity when allowNonEU is not set, (2) the k8s operator's reconcile loop re-validates the CRD spec and refuses to render/apply the Vector config if a non-EU sink is present without the opt-in annotation. Defense in depth.",
-      "At the Vector sink level — Vector has a built-in geo-filter that blocks non-EU endpoints.",
-      "At the network layer only — STACKIT's egress firewall blocks all traffic to non-EU IP ranges."
+      "Only at the REST API layer — validate the region on POST /destinations and return 422 Unprocessable Entity. A single enforcement point is sufficient if the API is the only authorized path to configure destinations.",
+      "At two layers: (1) REST API returns 422 when allowNonEU is not explicitly set, (2) the operator's reconcile loop re-validates and refuses to render the Vector config if a non-EU sink is present. Defense in depth.",
+      "At the Vector sink level only — Vector has a built-in endpoint geo-filter that resolves the destination hostname and blocks connections to non-EU IP address ranges at the TOML config level.",
+      "At the network egress layer only — STACKIT's cloud perimeter firewall blocks all outbound traffic to non-EU IP ranges, making application-level enforcement redundant and unnecessary overhead."
     ],
     correct: 1,
-    explanation: "<strong>Defense in depth</strong> requires at least two enforcement points: <br><br><strong>Layer 1 — REST API</strong>: When <code>POST /destinations</code> receives an S3 config with a non-EU <code>region</code> and <code>allowNonEU</code> is not <code>true</code>, return <code>422 Unprocessable Entity</code> with a clear message. Fast feedback to the customer before anything is persisted.<br><br><strong>Layer 2 — k8s Operator</strong>: The reconcile loop calls <code>enforceRegionPolicy()</code> before rendering the Vector config. Even if someone bypasses the API and patches the CRD directly, the operator won't apply a config with non-EU S3 destinations. This is the authoritative enforcement point. Set a <code>RegionCompliant: False</code> condition on the CR status so the violation is visible in <code>kubectl describe</code>."
+    explanation: "<strong>Defense in depth</strong> requires two enforcement points: <strong>Layer 1 — REST API</strong>: <code>POST /destinations</code> with a non-EU S3 region and no <code>allowNonEU: true</code> returns <code>422 Unprocessable Entity</code> immediately. Fast feedback before anything is persisted. <strong>Layer 2 — k8s Operator</strong>: The reconcile loop calls <code>enforceRegionPolicy()</code> before rendering the Vector config. Even a direct CRD patch bypassing the API gets caught here. Set <code>RegionCompliant: False</code> as a status condition so the violation is visible in <code>kubectl describe</code>."
   },
   {
     category: "OpenTelemetry Ecosystem",
     difficulty: "med",
     q: "What is the OpenTelemetry Collector and how does it relate to Vector in the Telemetry Router context?",
     options: [
-      "The OTel Collector is a direct competitor to Vector — STACKIT had to choose one and chose Vector.",
-      "The OTel Collector is a vendor-neutral CNCF project for receiving, processing, and exporting telemetry. Vector overlaps in capability but has stronger transformation primitives (VRL). In the Telemetry Router, Vector handles the routing/fan-out layer while customer workloads use OTel SDKs to emit OTLP to Vector's receiver.",
-      "The OTel Collector is the SDK component that runs inside each application. Vector is the cluster-level aggregator.",
-      "The OTel Collector and Vector are the same project — Vector is the CNCF's rebranding of the Collector."
+      "The OTel Collector is the SDK component embedded inside each application — it batches and exports spans/metrics/logs. Vector is the cluster-level aggregator that receives from multiple Collector instances.",
+      "The OTel Collector and Vector are the same project — Vector is the CNCF's community rebranding of the Collector, maintained under the OpenTelemetry SIG with compatible TOML configuration.",
+      "The OTel Collector is a direct competitor to Vector — STACKIT evaluated both and chose Vector for its stronger VRL transformation primitives and better Kubernetes operator ecosystem.",
+      "The OTel Collector is a CNCF vendor-neutral pipeline for receiving, processing, and exporting telemetry — similar to Vector but with weaker transformation primitives. In the Router, customer workloads emit OTLP via OTel SDKs to Vector's receiver; a Collector DaemonSet may also forward node-level metrics to Vector via OTLP."
     ],
-    correct: 1,
-    explanation: "The <strong>OpenTelemetry Collector</strong> (CNCF project) is a standalone agent/gateway that receives OTLP, runs processors, and exports to backends — conceptually similar to Vector. The key differences: Vector has a more powerful transformation language (VRL vs. OTel's limited processors), better buffer/backpressure controls, and broader sink ecosystem. In STACKIT's architecture: customer workloads instrument with <strong>OTel SDKs</strong> (Go, Java, Python SDKs) which emit OTLP to Vector's <code>opentelemetry</code> source. Vector then applies transforms and fans out to sinks. You might also run an OTel Collector as a DaemonSet to collect node-level metrics and forward to Vector via OTLP — they compose well."
+    correct: 3,
+    explanation: "The <strong>OpenTelemetry Collector</strong> (CNCF project) receives OTLP, runs processors, and exports to backends — conceptually similar to Vector. Key differences: Vector has more powerful transformation (VRL vs. OTel's limited processors) and better buffer/backpressure controls. In STACKIT's architecture: customer workloads instrument with <strong>OTel SDKs</strong> and emit OTLP to Vector's <code>opentelemetry</code> source. Vector transforms and fans out to sinks. An OTel Collector DaemonSet for node-level metrics forwarding via OTLP to Vector is a common composition pattern."
   },
   {
     category: "OpenTelemetry Ecosystem",
     difficulty: "hard",
-    q: "What are Semantic Conventions in OpenTelemetry and why do they matter for the Telemetry Router's transform layer?",
+    q: "What are OTel Semantic Conventions and why do they matter for the Telemetry Router's VRL transform layer?",
     options: [
-      "Semantic Conventions are optional naming suggestions — teams can ignore them if they have their own standards.",
-      "Semantic Conventions are standardized attribute names (e.g., k8s.pod.name, http.request.method, db.system) defined by the OTel spec. They matter for transforms because you can write VRL rules that work across any compliant service without custom per-service mappings.",
-      "Semantic Conventions are STACKIT-specific field names defined in the STACKIT Observability schema.",
-      "Semantic Conventions are JSON schemas for validating OTLP payloads at ingestion time."
+      "Semantic Conventions are standardized attribute names (k8s.pod.name, http.request.method, cloud.region) defined by the OTel spec. They let you write VRL transforms that work across any compliant service without per-service custom mappings.",
+      "Semantic Conventions are optional naming suggestions that teams may adopt at their discretion — they improve interoperability but OTLP payloads are valid regardless of whether the attribute names follow the convention.",
+      "Semantic Conventions are STACKIT-specific field names defined in the STACKIT Observability Platform schema, used to normalize telemetry from STACKIT-managed services before routing to customer-configured sinks.",
+      "Semantic Conventions are JSON Schema definitions used to validate OTLP payloads at ingestion time — non-conformant fields are rejected with a 400 error before they enter the Vector pipeline."
     ],
-    correct: 1,
-    explanation: "<strong>Semantic Conventions</strong> (SemConv) are the OTel spec's dictionary of standardized attribute names: <code>k8s.pod.name</code>, <code>k8s.namespace.name</code>, <code>http.request.method</code>, <code>http.response.status_code</code>, <code>db.system</code>, <code>cloud.region</code>, etc. For the Telemetry Router's transform layer, this is powerful: your VRL PII redaction can use <code>.attributes.\"enduser.id\"</code> knowing that's the standard field for user identifiers across all compliant SDKs. Region compliance checks use <code>.resource.\"cloud.region\"</code>. Without SemConv, every microservice might call it <code>region</code>, <code>cloud_region</code>, <code>aws_region</code> — impossible to write reliable generic transforms."
+    correct: 0,
+    explanation: "<strong>Semantic Conventions</strong> (SemConv) are the OTel spec's standardized attribute dictionary: <code>k8s.pod.name</code>, <code>http.request.method</code>, <code>http.response.status_code</code>, <code>db.system</code>, <code>cloud.region</code>, etc. For the Router's transform layer: VRL PII redaction can use <code>.attributes.\"enduser.id\"</code> knowing that's the standard user identifier field across all compliant SDKs. Region compliance checks use <code>.resource.\"cloud.region\"</code>. Without SemConv, every microservice names fields differently (<code>region</code>, <code>cloud_region</code>, <code>aws_region</code>) — impossible to write reliable generic transforms."
   },
   {
     category: "Practical / Interview",
     difficulty: "hard",
     q: "The interviewer asks: 'We say OTLP is more than just a standard — what do you mean by that?' What's the ideal answer?",
     options: [
-      "OTLP is a great standard because it's open source and has good tooling support.",
-      "OTLP represents a shift from pull-based, vendor-specific collection to a push-based, unified telemetry contract. It decouples instrumentation from routing — your code instruments once against a stable API, and the infrastructure decides where data goes. For STACKIT, it's the foundation of sovereignty: no vendor lock-in at the instrumentation layer.",
-      "OTLP is basically Prometheus but with support for logs and traces added on top.",
-      "OTLP is important because it supports both gRPC and HTTP, which gives flexibility in network configuration."
+      "OTLP is a great standard because it's open source, CNCF-governed, and has excellent tooling support across all major languages — Java, Python, Go, and Node.js all have mature SDK implementations.",
+      "OTLP is essentially Prometheus extended with log and trace support — it unifies the three pillars under one protocol while maintaining backward compatibility with existing Prometheus-based monitoring infrastructure.",
+      "OTLP represents a shift from pull-based vendor-specific collection to a push-based unified telemetry contract. It decouples instrumentation from routing — code instruments once against a stable API, infrastructure decides where data goes. For STACKIT, it's the foundation of sovereignty: no vendor lock-in at the instrumentation layer.",
+      "OTLP is important primarily because it supports both gRPC and HTTP transports, giving flexibility for different network environments — firewall-restricted deployments can use HTTP while high-throughput internal clusters use gRPC."
     ],
-    correct: 1,
-    explanation: "This is the 'philosophy' question — they want to hear that you understand the <em>design intent</em>, not just the syntax. The ideal answer touches: (1) <strong>Decoupling instrumentation from routing</strong> — app developers instrument with OTel SDKs and emit OTLP; the ops/platform team decides sinks without touching app code. (2) <strong>Unified signal model</strong> — logs, metrics, and traces share resource/scope metadata, enabling correlation you can't do with separate pipelines. (3) <strong>Sovereignty implication</strong> — when the wire format is open and standardized, STACKIT can build routing logic that works for any workload without proprietary agents. (4) <strong>Future-proofing</strong> — profiles signal type is being added; OTLP-compliant infrastructure can adopt it without replacing instrumentation."
+    correct: 2,
+    explanation: "This is the 'philosophy' question. The ideal answer touches: (1) <strong>Decoupling instrumentation from routing</strong> — developers instrument with OTel SDKs; the platform team decides sinks without touching app code. (2) <strong>Unified signal model</strong> — logs, metrics, and traces share resource/scope metadata, enabling correlation impossible with separate pipelines. (3) <strong>Sovereignty implication</strong> — open, standardized wire format means STACKIT can build routing logic for any workload without proprietary agents. (4) <strong>Future-proofing</strong> — profiles signal type is being added; OTLP-compliant infrastructure adopts it without replacing instrumentation."
   }
 ];
 

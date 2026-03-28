@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STAR Story Matcher — Behavioral Interview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 2rem; }
+  .container { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 700; color: #f59e0b; margin-bottom: 0.25rem; }
+  .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem; }
+  .legend { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 2rem; font-size: 0.82rem; color: #94a3b8; line-height: 1.8; }
+  .legend strong { color: #f59e0b; }
+  .progress-bar { background: #1e293b; border-radius: 99px; height: 6px; margin-bottom: 2rem; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #d97706, #f59e0b); border-radius: 99px; transition: width 0.4s ease; }
+  .score-badge { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.4rem 1rem; font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem; }
+  .score-badge span { color: #f59e0b; font-weight: 700; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; transition: border-color 0.2s; }
+  .card.correct { border-color: #22c55e; background: #052e16; }
+  .card.incorrect { border-color: #ef4444; background: #1c0606; }
+  .interviewer-q { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; margin-bottom: 0.5rem; }
+  .question { font-size: 1rem; font-weight: 600; color: #fef3c7; margin-bottom: 0.5rem; line-height: 1.5; font-style: italic; }
+  .question::before { content: '"'; }
+  .question::after { content: '"'; }
+  .prompt { font-size: 0.85rem; color: #94a3b8; margin-bottom: 1rem; }
+  .options { display: flex; flex-direction: column; gap: 0.5rem; }
+  .option { background: #0f1117; border: 1px solid #334155; border-radius: 8px; padding: 0.85rem 1rem; cursor: pointer; text-align: left; transition: all 0.15s; }
+  .option:hover:not(:disabled) { border-color: #d97706; background: #1c1100; }
+  .option:disabled { cursor: default; }
+  .option.selected-correct { border-color: #22c55e; background: #166534; }
+  .option.selected-incorrect { border-color: #ef4444; background: #7f1d1d; }
+  .option.show-correct { border-color: #22c55e; }
+  .story-name { font-size: 0.9rem; font-weight: 700; color: #f59e0b; display: block; margin-bottom: 0.25rem; }
+  .story-name.correct-color { color: #22c55e; }
+  .story-hint { font-size: 0.8rem; color: #94a3b8; }
+  .option.selected-correct .story-name { color: #86efac; }
+  .option.selected-incorrect .story-name { color: #fca5a5; }
+  .option.show-correct .story-name { color: #86efac; }
+  .letter { color: #64748b; margin-right: 0.5rem; font-size: 0.8rem; }
+  .explanation { margin-top: 1rem; padding: 0.75rem 1rem; background: #0f1117; border-left: 3px solid #d97706; border-radius: 0 6px 6px 0; font-size: 0.875rem; color: #94a3b8; line-height: 1.6; display: none; }
+  .explanation strong { color: #f59e0b; }
+  .explanation .angle { background: #1c1100; border: 1px solid #92400e; border-radius: 6px; padding: 0.6rem 0.75rem; margin-top: 0.6rem; font-size: 0.82rem; color: #fcd34d; }
+  .result-panel { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 2rem; text-align: center; display: none; }
+  .result-panel h2 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+  .big-score { font-size: 3.5rem; font-weight: 800; color: #f59e0b; line-height: 1; margin: 1rem 0; }
+  .result-msg { color: #94a3b8; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.6; }
+  .btn { background: #d97706; color: white; border: none; border-radius: 8px; padding: 0.6rem 1.4rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #b45309; }
+  .nav-links { display: flex; gap: 1rem; margin-bottom: 2rem; }
+  .nav-link { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 0.5rem 1rem; font-size: 0.8rem; color: #94a3b8; text-decoration: none; cursor: pointer; }
+  .nav-link:hover { border-color: #d97706; color: #f59e0b; }
+  .missed-list { text-align: left; margin-top: 1rem; }
+  .missed-item { font-size: 0.85rem; color: #94a3b8; padding: 0.4rem 0; border-bottom: 1px solid #334155; }
+  .missed-item strong { color: #fca5a5; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>STAR Story Matcher</h1>
+  <p class="subtitle">Behavioral interview prep — pick the best story for each question · Mike Falcone</p>
+
+  <div class="nav-links">
+    <span class="nav-link" onclick="window.location.href='interview-quiz.html'">→ Technical Quiz</span>
+    <span class="nav-link" onclick="window.location.href='otlp-quiz.html'">→ OTLP Deep Dive</span>
+  </div>
+
+  <div class="legend">
+    <strong>Your seven core STAR stories:</strong><br>
+    🔴 <strong>AGA 2 War Room</strong> — 12hr war room, led as L3 among L4s, 3 critical defects, shipped on deadline<br>
+    🟠 <strong>MongoDB mTLS</strong> — ramped up on TCP-mode Envoy + MongoDB TLS with no playbook, shipped novel integration<br>
+    🟡 <strong>Datadog SE</strong> — 87% technical win rate, Kubernetes SME, built enablement content for junior SEs<br>
+    🟢 <strong>Istio Advocacy</strong> — canceled a custom mTLS project as interim PO, pivoted team to Istio, saved months<br>
+    🔵 <strong>CVS-QA Automation</strong> — 85% setup time reduction (2wks→2days), 2x team average throughput, still-used docs<br>
+    🟣 <strong>Acting Team Lead</strong> — volunteered after manager layoff, restored dynamics, delivered AGA2 + MQoS to Google<br>
+    ⚫ <strong>SVM Peering Cancellation</strong> — canceled own feature via ROI analysis, saved 12–16wks, enabled on-time release
+  </div>
+
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="score-badge">Score: <span id="scoreDisplay">0</span> / <span id="totalDisplay">0</span></div>
+
+  <div id="quizArea"></div>
+
+  <div class="result-panel" id="resultPanel">
+    <h2>Quiz Complete 🎯</h2>
+    <div class="big-score" id="bigScore"></div>
+    <div class="result-msg" id="resultMsg"></div>
+    <div class="missed-list" id="missedList"></div>
+    <br>
+    <button class="btn" onclick="resetQuiz()">Retake Quiz</button>
+  </div>
+</div>
+
+<script>
+// correct: 0=A, 1=B, 2=C, 3=D
+// Distribution: 3×A, 3×B, 2×C, 3×D (slight variation to avoid patterns)
+const questions = [
+  {
+    q: "Tell me about a time you owned a complex technical problem end to end.",
+    prompt: "Pick the story that best shows deep technical ownership — root cause discovery, cross-layer fixes, and shipping under pressure.",
+    options: [
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Led 12hr war room, diagnosed 3 critical defects across API/DB/ONTAP layers, authored every PR, shipped on deadline as L3 among L4s" },
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Ramped up on TCP-mode Envoy + MongoDB TLS simultaneously with no playbook, ran tight debug loops, shipped working novel integration" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Volunteered into lead role after manager layoff, restored dynamics, delivered AGA2 + MQoS to Google under contractual deadline" },
+      { name: "⚫ SVM Peering Cancellation (NetApp, 2025)", hint: "Conducted deep architectural research on own feature, built ROI case, presented to 5 senior stakeholders, got the feature canceled" }
+    ],
+    correct: 0,
+    explanation: "<strong>AGA 2 War Room</strong> is the perfect fit. 'End-to-end ownership' means you identified the root cause, designed the fix, wrote the code, and shipped — not just one of those. This story hits all four: you identified the dual-job API bug AND the state propagation issue, designed the chained-job pattern fix, authored every PR spanning API/job executor/database/ONTAP integration, and shipped on deadline. Leading as L3 among L4s in a crisis is the ownership signal they're looking for.",
+    angle: "Lead with: 'Two weeks before release, three critical defects threatened the deadline...' Keep the ONTAP/ANF technical details brief — they won't know the domain. Anchor on the outcome: shipped on deadline, zero post-release regressions on those defects."
+  },
+  {
+    q: "Tell me about a time you had to understand a complex system deeply to fix a problem.",
+    prompt: "Pick the story that best shows you going below the surface — reading source, diffing behavior, iterating with real tools.",
+    options: [
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Diagnosed dual-job API bug and ONTAP state propagation bug simultaneously — but domain knowledge was pre-existing, not built from scratch" },
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Read Envoy TCP filter docs and MongoDB TLS docs simultaneously with no playbook, ran tight kubectl edit loops, diagnosed missing security config" },
+      { name: "🟢 Istio Advocacy (NetApp, 2018–2023)", hint: "Researched the service mesh landscape broadly enough to cancel a custom build — breadth of research, not depth on one unfamiliar system" },
+      { name: "⚫ SVM Peering Cancellation (NetApp, 2025)", hint: "Researched architecture across affected layers to build the ROI case — familiar domain, not an unfamiliar technology from scratch" }
+    ],
+    correct: 1,
+    explanation: "<strong>MongoDB mTLS</strong> is the best fit. The question is specifically about going deep on an unfamiliar system — you had no playbook, no working template, and had to simultaneously learn TCP-mode Envoy filter config AND MongoDB's custom TLS approach. The debugging method (kubectl edit → mongosh --tlsCertKeyFile loops, reading two docs simultaneously) demonstrates exactly the kind of systematic depth they want. The AGA 2 story shows urgency but the domain knowledge is assumed; mTLS shows you built the knowledge from scratch.",
+    angle: "Lead with: 'We had a template for HTTP services in our Envoy mTLS setup, but MongoDB uses TCP not HTTP...' Emphasize the documentation-first approach and the pair programming escalation — both are engineering maturity signals."
+  },
+  {
+    q: "Tell me about a time you bridged the gap between engineering and another team to deliver something.",
+    prompt: "Pick the story that best shows you operating across team boundaries — translation, trust-building, and delivery.",
+    options: [
+      { name: "🟡 Datadog SE (Datadog, 2024–2025)", hint: "Role literally bridged sales org and customer engineering — 87% win rate, built Kubernetes enablement for junior SEs, translated complex platform to engineers under competitive eval pressure" },
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Coordinated debugging across five engineers under deadline — primarily internal engineering collaboration, not a cross-functional org bridge" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Became sole liaison between director and Google team, centralized external communication — strong alternative for 'internal bridge' variant of this question" },
+      { name: "🟢 Istio Advocacy (NetApp, 2018–2023)", hint: "Aligned architects, PMs, engineering, and sales engineers in one meeting — influence story, but the primary signal is challenging an existing approach, not bridging teams" }
+    ],
+    correct: 0,
+    explanation: "<strong>Datadog SE</strong> is the canonical bridge story — it's literally what a Solutions Engineer does. You sat between a sales organization (non-technical) and customer engineering teams (deeply technical), had to make complex distributed tracing credible to engineers evaluating it under pressure, and did it 87% of the time. The Kubernetes enablement content is the extra signal — you didn't just bridge for yourself, you raised the entire team's ability to bridge. Use the Acting Team Lead story as an alternative if they ask for an 'internal bridge' variant.",
+    angle: "Lead with: 'As a Solutions Engineer, my job was to make complex observability infrastructure immediately credible to engineers who were actively comparing us against competitors...' Anchor the 87% win rate early — it's the most concrete outcome."
+  },
+  {
+    q: "Tell me about a time you introduced a new technology or challenged an existing technical approach.",
+    prompt: "Pick the story that shows you questioned the status quo with data, got alignment, and changed direction.",
+    options: [
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Solved a novel technical problem with an unfamiliar system — deep ramp-up, but executed an assigned task rather than challenging the existing direction" },
+      { name: "🔵 CVS-QA Automation (NetApp, 2025)", hint: "Improved process efficiency significantly — proactive, but improving an existing process isn't the same as introducing a new technology or challenging direction" },
+      { name: "🟢 Istio Advocacy (NetApp, 2018–2023)", hint: "Challenged a roadmap item (custom mTLS build), introduced Istio as the market-standard alternative, aligned stakeholders, got the project canceled" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Introduced new process structures like daily scrums and reporting cadences — leadership context, not a technology challenge or product direction pushback" }
+    ],
+    correct: 2,
+    explanation: "<strong>Istio Advocacy</strong> is the exact match. You challenged an existing approach (custom mTLS build already in the roadmap), introduced an alternative (Istio — the market standard), gathered evidence (researched adoption, analyzed scope vs. customer demand), and got organizational alignment (architects, PMs, engineering, sales engineers all in the room). The outcome was the cancellation of a significant engineering investment. This story has the 'data-driven pushback that changed direction' arc the question is looking for.",
+    angle: "Lead with: 'While serving as interim PO, we were scoping a custom mTLS solution. I stepped back and asked — why are we building something the market has already solved?' Emphasize that you were new to the PO seat and could have played it safe. The willingness to challenge from a position of relative junior standing is the signal."
+  },
+  {
+    q: "Tell me about a time you had to balance quality and speed under resource constraints.",
+    prompt: "Pick the story that shows you maintained throughput without sacrificing quality — and ideally raised both simultaneously.",
+    options: [
+      { name: "🔵 CVS-QA Automation (NetApp, 2025)", hint: "Maintained 2x team average testing throughput while reducing setup time by 85% — explicitly balanced personal delivery speed against team-wide documentation quality simultaneously" },
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Shipped under extreme deadline pressure — compelling story, but the signal is crisis leadership and technical diagnosis, not the quality/speed tension explicitly" },
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Required methodical debugging under uncertainty — careful, thorough approach, but no explicit constraint forcing a quality-vs-speed tradeoff decision" },
+      { name: "⚫ SVM Peering Cancellation (NetApp, 2025)", hint: "Prioritization and ROI story — outcome was canceling work to protect team bandwidth, not delivering something faster or with higher quality under constraints" }
+    ],
+    correct: 0,
+    explanation: "<strong>CVS-QA Automation</strong> is the perfect fit. The tension is explicit: you had your own testing throughput target AND a team-wide ramp problem, with a fixed 3-month timeline. You couldn't let documentation cannibalize your own delivery. The outcome — 2x your own testing throughput AND 85% setup time reduction for everyone else — shows both quality (thoroughness of the guide) and speed (personal throughput) were achieved simultaneously, not traded off. The documentation is still in active use, which signals quality that lasted.",
+    angle: "Lead with: 'I was the first engineer to fully configure the environment — 2 weeks of trial and error. I had two choices: wait until I was done and then document, or document as I went and sacrifice some throughput.' Frame the documentation as a force multiplier, not a detour."
+  },
+  {
+    q: "Tell me about a time you operated in a leadership role without formal authority.",
+    prompt: "Pick the story that best shows informal leadership — stepping up, restoring function, and delivering without a title.",
+    options: [
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Deep technical problem-solving with a pair-programming escalation — individual contributor work, no leadership dimension or team coordination responsibility" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Volunteered after manager layoff with no formal title — restored team dynamics, became Google liaison, ran scrums, delivered AGA2 + MQoS under contractual deadline" },
+      { name: "🔵 CVS-QA Automation (NetApp, 2025)", hint: "Led by example and created documentation others followed — informal cultural influence, but no explicit leadership role or team coordination responsibility" },
+      { name: "🟢 Istio Advocacy (NetApp, 2018–2023)", hint: "Served as interim PO — had some degree of formal authority in that seat, making it less purely 'without authority' compared to the volunteer lead story" }
+    ],
+    correct: 1,
+    explanation: "<strong>Acting Team Lead</strong> is the direct answer. No formal title, manager had just been laid off, you volunteered. The hardest part isn't the Scrum ceremonies — it's the emotionally charged meetings between teammates and the director. How you navigated that (becoming the communication buffer, 1:1s, structured reporting) is the leadership-without-authority signal. The Google delivery obligation makes the stakes concrete. The 25/75 leadership/engineering split shows you didn't abandon your technical value — you absorbed leadership on top.",
+    angle: "The moment they'll remember: 'The situation was creating communication breakdown at the exact moment we had delivery commitments to Google. I approached my director and volunteered.' Spend one sentence on how you de-escalated the team/director tension specifically — that's the hardest part and it's currently undersold in your answer."
+  },
+  {
+    q: "Tell me about a time you challenged a decision or pushed back on your team's direction.",
+    prompt: "Pick the story that shows structured, data-driven pushback that changed direction — not just disagreement.",
+    options: [
+      { name: "🟢 Istio Advocacy (NetApp, 2018–2023)", hint: "Challenged a roadmap item from the interim PO seat — strong story, but framed better as 'introduced new technology' since you had some authority to redirect the roadmap" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Leadership and delivery story under organizational pressure — no moment of pushing back on a specific decision or challenging your own assigned work" },
+      { name: "🔵 CVS-QA Automation (NetApp, 2025)", hint: "Proactive process improvement — you identified a gap and fixed it, but there was no decision to push back against or assignment to challenge" },
+      { name: "⚫ SVM Peering Cancellation (NetApp, 2025)", hint: "Assigned sole ownership, built a full architectural + ROI case, presented to 5 senior stakeholders, recommended canceling your own feature — the purest pushback story" }
+    ],
+    correct: 3,
+    explanation: "<strong>SVM Peering Cancellation</strong> is the cleanest pushback story. You were assigned the feature — sole ownership — and you killed it. That's the hardest kind of pushback: recommending against your own assignment. You did it right: deep architectural research across every affected layer, a complete functional spec (not hand-waving), an ROI analysis (3–4 sprints vs. minimal incremental value), and a structured meeting with five senior stakeholders. The feature was canceled. That saved 12–16 weeks of effort and kept the team focused on the AGA 2 deadline.",
+    angle: "Lead with: 'I was assigned sole ownership of the SVM peering retry feature. But as I dug into the requirements, something felt off...' The key detail: you ran the ROI analysis yourself and scheduled the meeting with senior leadership. You didn't wait to be asked — you drove to the conclusion."
+  },
+  {
+    q: "Tell me about a time you enabled someone else to succeed.",
+    prompt: "Pick the story where your actions directly multiplied another person's or the team's ability to deliver.",
+    options: [
+      { name: "🔵 CVS-QA Automation (NetApp, 2025)", hint: "85% setup time reduction for every engineer after you — near-fully configured two teammates' environments directly, published guide still in active use months later" },
+      { name: "🟡 Datadog SE (Datadog, 2024–2025)", hint: "Built Kubernetes enablement content for junior SEs, reducing escalation dependency on senior SEs for competitive deals — strong alternative if they ask about mentoring specifically" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Restored team dynamics and cleared communication blockers so the team could deliver — leadership enablement, but the primary signal is informal authority and delivery, not multiplying others" },
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Led the team to resolution across 12 hours — story signal is ownership and crisis leadership, not specifically multiplying another person's capability or output" }
+    ],
+    correct: 0,
+    explanation: "<strong>CVS-QA Automation</strong> is the clearest multiplier story. The math is explicit: 2-week environment setup → 2-day setup, 85% reduction, for every engineer who came after you. You didn't just document — you nearly fully configured two teammates' environments directly, collaborated with the process lead, and published the Confluence guide. The fact that the documentation is still in active use months later is the quality signal. The Datadog SE enablement content is a strong alternative if they ask specifically about mentoring.",
+    angle: "Lead with: 'I was the first engineer to fully configure the environment. I had two choices: document as I went or wait until I was done...' Close with the specific impact: 'The setup time dropped from two weeks to two days for every engineer who came after me. The guide is still the team's primary reference.'"
+  },
+  {
+    q: "Tell me about a time you delivered something under a hard deadline with incomplete or shifting requirements.",
+    prompt: "Pick the story that best shows navigating ambiguity and shifting scope without missing the commitment.",
+    options: [
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Hard Google contractual deadline, three critical defects surfaced 2 weeks before ship — requirements shifted dramatically with zero flexibility on the date" },
+      { name: "🟢 Istio Advocacy (NetApp, 2018–2023)", hint: "Changed requirements by canceling the project as interim PO — a direction decision made from authority, not navigating shifting requirements under external deadline pressure" },
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Uncertain technical path forward with no clear playbook — but no explicit hard deadline driving the delivery pressure alongside the uncertainty" },
+      { name: "🟡 Datadog SE (Datadog, 2024–2025)", hint: "Customer-driven evaluation timelines — competitive pressure, but not an internal deadline with shifting requirements in the same way" }
+    ],
+    correct: 0,
+    explanation: "<strong>AGA 2 War Room</strong> is the best fit. The deadline was hard — Google contractual obligations, already one prior delay. The requirements shifted dramatically: three critical defects surfaced with two weeks to go, each requiring fixes across different system layers. The war room format is itself a response to shifting requirements under time pressure. You delivered. The MQoS phased delivery (from mock interview session 2) is also a strong alternative — phase 1 delivery as a response to shifting scope and hard dates — if they push for a second example.",
+    angle: "Lead with: 'Two weeks before our Google release date, three critical defects surfaced that threatened the deadline — and this was already a team that had experienced prior delays.' Then focus on the decision-making under pressure: which defects to tackle first, how to coordinate five engineers, how to keep the session productive over 12 hours."
+  },
+  {
+    q: "How do you handle being on-call? Tell me about an experience where you had to respond to a production issue.",
+    prompt: "Pick the story that best demonstrates incident response instincts — diagnosis, communication, and resolution under pressure.",
+    options: [
+      { name: "🟠 MongoDB mTLS (NetApp, 2018–2023)", hint: "Systematic debugging under technical uncertainty — methodical, patient ramp-up work, but no time-critical incident with stakeholders watching and SLAs at risk" },
+      { name: "🔴 AGA 2 War Room (NetApp, 2025)", hint: "Incident response in all but name — critical defects surfaced unexpectedly, 12-hour war room, multi-engineer coordination, production deadline at risk with Google watching" },
+      { name: "🟣 Acting Team Lead (NetApp, 2025)", hint: "Leadership under organizational pressure with communication breakdown — people and process incident, not a technical system failure requiring urgent root-cause diagnosis" },
+      { name: "🔵 CVS-QA Automation (NetApp, 2025)", hint: "Proactive process improvement over a 3-month initiative — planned improvement work, not a reactive response to an unexpected production-critical failure" }
+    ],
+    correct: 1,
+    explanation: "<strong>AGA 2 War Room</strong> maps directly to on-call incident response — the format is identical: unexpected critical failure, time pressure, multi-engineer coordination, diagnosis across system layers, resolution and ship. The key on-call signals to hit: (1) you stayed calm and kept the session productive, (2) you diagnosed root causes before writing fixes (not thrashing), (3) you communicated status clearly to stakeholders. The insight about on-call starting with good instrumentation is worth adding: 'Good on-call starts with observability. If you can't see the system, you're guessing.'",
+    angle: "Frame it as: 'We didn't call it on-call, but a war room two weeks before a Google release is the same thing — production-critical issue, time pressure, and no one's going home until it's fixed.' This reframe makes the story directly relevant even if the phrasing is different."
+  }
+];
+
+let answered = 0;
+let correct = 0;
+let missedQuestions = [];
+let total = questions.length;
+
+function renderQuiz() {
+  const area = document.getElementById('quizArea');
+  document.getElementById('totalDisplay').textContent = total;
+  area.innerHTML = questions.map((q, i) => `
+    <div class="card" id="card-${i}">
+      <div class="interviewer-q">Interviewer asks →</div>
+      <div class="question">${q.q}</div>
+      <div class="prompt">${q.prompt}</div>
+      <div class="options">
+        ${q.options.map((opt, j) => `
+          <button class="option" id="opt-${i}-${j}" onclick="answer(${i}, ${j})">
+            <span class="letter">${String.fromCharCode(65+j)}.</span>
+            <span class="story-name">${opt.name}</span>
+            <span class="story-hint">${opt.hint}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="explanation" id="exp-${i}">
+        ${q.explanation}
+        <div class="angle">💡 <strong>How to angle it:</strong> ${q.angle}</div>
+      </div>
+    </div>
+  `).join('');
+  updateProgress();
+}
+
+function answer(qi, oi) {
+  const q = questions[qi];
+  const card = document.getElementById(`card-${qi}`);
+  for (let j = 0; j < q.options.length; j++) {
+    document.getElementById(`opt-${qi}-${j}`).disabled = true;
+  }
+  const selected = document.getElementById(`opt-${qi}-${oi}`);
+  const correctBtn = document.getElementById(`opt-${qi}-${q.correct}`);
+  if (oi === q.correct) {
+    selected.classList.add('selected-correct');
+    card.classList.add('correct');
+    correct++;
+  } else {
+    selected.classList.add('selected-incorrect');
+    correctBtn.classList.add('show-correct');
+    card.classList.add('incorrect');
+    missedQuestions.push({ num: qi + 1, q: q.q.substring(0, 75) + '...', best: q.options[q.correct].name });
+  }
+  document.getElementById(`exp-${qi}`).style.display = 'block';
+  answered++;
+  document.getElementById('scoreDisplay').textContent = correct;
+  updateProgress();
+  if (answered === total) setTimeout(showResult, 600);
+}
+
+function updateProgress() {
+  document.getElementById('progressFill').style.width = (answered / total * 100) + '%';
+}
+
+function showResult() {
+  const panel = document.getElementById('resultPanel');
+  panel.style.display = 'block';
+  const pct = Math.round(correct / total * 100);
+  document.getElementById('bigScore').textContent = `${correct} / ${total}`;
+  let msg = '';
+  if (pct >= 90) msg = "🏆 You know your stories cold. The next step is delivery — practice each story out loud until it takes under 2 minutes. Focus on getting to the action faster (cut the setup in half).";
+  else if (pct >= 70) msg = "💪 Good story awareness. The ones you missed are where the stories overlap — review the explanations to understand the key differentiator for each question type.";
+  else if (pct >= 50) msg = "📚 Study the 'angle' notes in each explanation — they tell you exactly what signal each story is supposed to send and how to frame it for that question.";
+  else msg = "🔄 Read through the legend at the top again and retake. The key is knowing each story's primary signal: War Room=ownership, mTLS=depth, Istio=introducing tech, SVM=pushback, CVS-QA=enabling others, Team Lead=leadership without authority.";
+  document.getElementById('resultMsg').textContent = msg;
+
+  if (missedQuestions.length > 0) {
+    const ml = document.getElementById('missedList');
+    ml.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:0.5rem;margin-top:1rem;">📋 Questions to review:</p>' +
+      missedQuestions.map(m => `<div class="missed-item"><strong>Q${m.num}:</strong> "${m.q}" → Best: <strong>${m.best}</strong></div>`).join('');
+  }
+  panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+function resetQuiz() {
+  answered = 0; correct = 0; missedQuestions = [];
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('scoreDisplay').textContent = 0;
+  renderQuiz();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+renderQuiz();
+</script>
+</body>
+</html>
