@@ -40,6 +40,7 @@ CUSTOMER_PORT      := 8000
         hotfix-operator hotfix-customer hotfix-observability \
         port-forward stop-port-forward \
         simulate simulate-buffer test status logs \
+        apply-opensearch teardown-opensearch \
         teardown teardown-router teardown-observability \
         help
 
@@ -210,6 +211,103 @@ create-router:
 ## delete-router: Delete the default TelemetryRouter CR
 delete-router:
 	kubectl delete -f $(K8S_DIR)/telemetry-router-cr.yaml --ignore-not-found
+
+# ── OpenSearch optional sink ──────────────────────────────────────────────────
+
+## apply-opensearch: Deploy OpenSearch, patch TelemetryRouter to add it as a sink, validate
+## apply-opensearch: Demonstrates the core operator use-case: a customer calls the API to
+## apply-opensearch: add a new log sink and the operator reconciles without any restarts.
+apply-opensearch: deploy-namespaces
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Step 0 — Update CRD (add OPENSEARCH to allowed types)"
+	@echo "════════════════════════════════════════════════════════"
+	kubectl apply -f $(K8S_DIR)/01-crds.yaml
+	kubectl wait --for=condition=established --timeout=30s \
+	    crd/telemetryrouters.telemetry.stackit.local
+
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Step 1 — Deploy OpenSearch"
+	@echo "════════════════════════════════════════════════════════"
+	kubectl apply -f $(K8S_DIR)/observability/opensearch.yaml
+	@echo "   Waiting for OpenSearch to be ready (up to 3 minutes)..."
+	kubectl rollout status deployment/opensearch -n observability --timeout=180s
+
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Step 2 — Update Grafana provisioning"
+	@echo "════════════════════════════════════════════════════════"
+	@echo "   Re-applying grafana.yaml to pick up OpenSearch datasource + dashboard..."
+	kubectl apply -f $(K8S_DIR)/observability/grafana.yaml
+	kubectl rollout restart deployment/grafana -n observability
+	kubectl rollout status  deployment/grafana -n observability --timeout=60s
+
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Step 3 — Add OpenSearch sink to main-router"
+	@echo "════════════════════════════════════════════════════════"
+	@echo "   Appending opensearch destination to TelemetryRouter spec..."
+	@echo "   The operator detects the spec change, re-renders the Vector config,"
+	@echo "   and rolls a new Vector pod — no manual restart needed."
+	kubectl patch telemetryrouter main-router -n $(OPERATOR_NAMESPACE) \
+	    --type=json \
+	    -p='[{"op":"add","path":"/spec/destinations/-","value":{"name":"opensearch","type":"OPENSEARCH","endpoint":"http://opensearch.observability.svc.cluster.local:9200"}}]'
+	@echo "   Patch applied — new spec:"
+	kubectl get tr main-router -n $(OPERATOR_NAMESPACE) \
+	    -o jsonpath='{range .spec.destinations[*]}  {.type}: {.name}{"\n"}{end}'
+
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Step 4 — Waiting for operator to reconcile"
+	@echo "════════════════════════════════════════════════════════"
+	@echo "   Giving the operator 30s to render new Vector config and"
+	@echo "   roll a new Vector pod with the opensearch sink..."
+	@sleep 25
+	kubectl rollout status deployment -n $(OPERATOR_NAMESPACE) -l app=vector --timeout=60s || true
+
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Step 5 — Generate traffic & validate"
+	@echo "════════════════════════════════════════════════════════"
+	@echo "   Sending a burst of test events..."
+	@curl -s http://localhost:$(CUSTOMER_PORT)/simulate >/dev/null 2>&1 \
+	    || echo "   (price-service unreachable — run 'make port-forward' first, then re-run validation below)"
+	@echo "   Waiting 10s for events to reach OpenSearch..."
+	@sleep 10
+	@echo "   Querying OpenSearch document count..."
+	@COUNT=$$(kubectl exec -n observability deploy/opensearch -- \
+	    curl -s http://localhost:9200/telemetry-logs-*/_count 2>/dev/null | \
+	    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count', 0))" 2>/dev/null || echo "0"); \
+	if [ "$$COUNT" -gt "0" ]; then \
+	    echo ""; \
+	    echo "✅  OpenSearch index has $$COUNT documents — logs are flowing!"; \
+	else \
+	    echo ""; \
+	    echo "⚠️  No documents yet. OpenSearch may still be warming up."; \
+	    echo "   Retry manually:"; \
+	    echo "     kubectl exec -n observability deploy/opensearch -- \\"; \
+	    echo "       curl -s http://localhost:9200/telemetry-logs-*/_count"; \
+	fi
+	@echo ""
+	@echo "════════════════════════════════════════════════════════"
+	@echo "  Done — open Grafana to see the data"
+	@echo "════════════════════════════════════════════════════════"
+	@echo "   Grafana → http://localhost:$(GRAFANA_PORT)"
+	@echo "   Folder  → STACKIT Mock → OpenSearch Logs"
+	@echo ""
+	@echo "   Or query OpenSearch directly:"
+	@echo "     kubectl exec -n observability deploy/opensearch -- \\"
+	@echo "       curl -s 'http://localhost:9200/telemetry-logs-*/_search?size=3&pretty'"
+	@echo ""
+
+## teardown-opensearch: Remove OpenSearch from the cluster (leaves TelemetryRouter intact)
+teardown-opensearch:
+	@echo "▶  Removing OpenSearch from observability namespace..."
+	kubectl delete -f $(K8S_DIR)/observability/opensearch.yaml --ignore-not-found
+	@echo "   Note: TelemetryRouter still has opensearch in destinations."
+	@echo "   Vector will log sink errors until you remove it. To revert:"
+	@echo "     make create-router   # re-applies the base CR without opensearch"
 
 # ── Port forwarding ───────────────────────────────────────────────────────────
 

@@ -24,6 +24,19 @@ import (
 const (
 	finalizerName = "telemetry.stackit.local/drain-finalizer"
 	vectorImage   = "timberio/vector:0.53.0-distroless-libc"
+
+	// Annotation keys written to the Vector ConfigMap.
+	annotationConfigHash = "telemetry.stackit.local/config-hash"
+	// annotationLKGConfig stores the full TOML of the last config that passed
+	// post-rollout health validation. Written before each config overwrite so
+	// the operator can restore it if the new config causes a crash-loop.
+	annotationLKGConfig = "telemetry.stackit.local/last-known-good-config"
+	annotationLKGHash   = "telemetry.stackit.local/last-known-good-hash"
+
+	// rolloutValidationWindow is how long the operator waits after pushing a
+	// new config before checking whether Vector has started cleanly.
+	// Should comfortably exceed Vector's startup time + readiness probe window.
+	rolloutValidationWindow = 45 * time.Second
 )
 
 // TelemetryRouterReconciler watches TelemetryRouter CRDs and manages
@@ -78,6 +91,56 @@ func (r *TelemetryRouterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	cfgHash := vector.Hash(vectorCfg)
 	logger.Info("Rendered Vector config", "hash", cfgHash)
 
+	// ── 4b. Skip known-bad configs ────────────────────────────────────────────
+	// If this exact config hash previously caused a Vector crash-loop, don't
+	// re-apply it. The ConfigMap and Deployment already hold the last-known-good
+	// config from the rollback. We requeue slowly so the operator stays
+	// responsive when the user fixes the spec.
+	if cfgHash == tr.Status.BadConfigHash {
+		logger.Info("Config hash is flagged bad — skipping apply; fix spec to retry",
+			"hash", cfgHash)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	// ── 4c. Validation pass (post-rollout health check) ───────────────────────
+	// When the operator is in the "Validating" phase it previously pushed a new
+	// config and scheduled a requeue. On this pass we inspect the Vector pods:
+	//   • CrashLoopBackOff → roll back to the last-known-good config
+	//   • All healthy       → promote the new config to last-known-good
+	if tr.Status.Phase == "Validating" && cfgHash == tr.Status.VectorConfigHash {
+		crashing, err := r.isVectorCrashLooping(ctx, &tr)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if crashing {
+			logger.Info("Crash-loop detected — rolling back config",
+				"badHash", cfgHash, "lkgHash", tr.Status.LastKnownGoodHash)
+
+			lkgHash, err := r.rollbackConfig(ctx, &tr)
+			if err != nil {
+				return ctrl.Result{}, r.setStatus(ctx, &tr, "RollbackFailed",
+					fmt.Sprintf("rollback failed: %v", err))
+			}
+			// Drive the Deployment to pick up the restored ConfigMap hash.
+			if err := r.reconcileDeployment(ctx, &tr, lkgHash); err != nil {
+				return ctrl.Result{}, err
+			}
+			tr.Status.Phase           = "RolledBack"
+			tr.Status.BadConfigHash   = cfgHash
+			tr.Status.VectorConfigHash = lkgHash
+			tr.Status.Message         = fmt.Sprintf(
+				"config %s caused crash-loop; rolled back to %s — fix spec to retry",
+				cfgHash, lkgHash)
+			tr.Status.LastReconcileAt = time.Now().UTC().Format(time.RFC3339)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, r.Status().Update(ctx, &tr)
+		}
+		// Healthy — promote this config to last-known-good.
+		logger.Info("Post-rollout health check passed — config promoted",
+			"hash", cfgHash)
+		tr.Status.LastKnownGoodHash = cfgHash
+		// Fall through to the normal Ready status update below.
+	}
+
 	// ── 5. Reconcile ConfigMap ────────────────────────────────────────────────
 	if err := r.reconcileConfigMap(ctx, &tr, vectorCfg, cfgHash); err != nil {
 		return ctrl.Result{}, r.setStatus(ctx, &tr, "ConfigMapError", err.Error())
@@ -94,10 +157,24 @@ func (r *TelemetryRouterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// ── 8. Update status ──────────────────────────────────────────────────────
-	tr.Status.Phase            = "Ready"
+	// If the config hash just changed (new config deployed for the first time,
+	// or after a spec edit), enter the "Validating" phase and schedule a
+	// requeue after the rollout window. The next reconcile will check pod health.
+	if cfgHash != tr.Status.LastKnownGoodHash {
+		logger.Info("New config deployed — entering validation window",
+			"hash", cfgHash, "window", rolloutValidationWindow)
+		tr.Status.Phase           = "Validating"
+		tr.Status.VectorConfigHash = cfgHash
+		tr.Status.Message         = fmt.Sprintf(
+			"validating config %s — will roll back automatically on crash-loop", cfgHash)
+		tr.Status.LastReconcileAt = time.Now().UTC().Format(time.RFC3339)
+		return ctrl.Result{RequeueAfter: rolloutValidationWindow}, r.Status().Update(ctx, &tr)
+	}
+
+	tr.Status.Phase           = "Ready"
 	tr.Status.VectorConfigHash = cfgHash
-	tr.Status.Message          = "Vector deployment running"
-	tr.Status.LastReconcileAt  = time.Now().UTC().Format(time.RFC3339)
+	tr.Status.Message         = "Vector deployment running"
+	tr.Status.LastReconcileAt = time.Now().UTC().Format(time.RFC3339)
 	if err := r.Status().Update(ctx, &tr); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -107,6 +184,9 @@ func (r *TelemetryRouterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 // reconcileConfigMap ensures the Vector TOML ConfigMap exists and is up-to-date.
+// Before overwriting a changed config it snapshots the current TOML into the
+// annotationLKGConfig annotation so rollbackConfig can restore it if the new
+// config causes a Vector crash-loop.
 func (r *TelemetryRouterReconciler) reconcileConfigMap(
 	ctx context.Context, tr *telemetryv1.TelemetryRouter, cfg, hash string,
 ) error {
@@ -121,7 +201,8 @@ func (r *TelemetryRouterReconciler) reconcileConfigMap(
 				Namespace: tr.Namespace,
 				Labels:    vectorLabels(tr.Name),
 				Annotations: map[string]string{
-					"telemetry.stackit.local/config-hash": hash,
+					annotationConfigHash: hash,
+					// No LKG snapshot on first create — nothing to roll back to yet.
 				},
 			},
 			Data: map[string]string{"vector.toml": cfg},
@@ -133,13 +214,21 @@ func (r *TelemetryRouterReconciler) reconcileConfigMap(
 		return err
 	}
 
-	// Update if hash changed
-	if cm.Annotations["telemetry.stackit.local/config-hash"] != hash {
-		cm.Data["vector.toml"] = cfg
-		cm.Annotations["telemetry.stackit.local/config-hash"] = hash
-		return r.Update(ctx, cm)
+	// Nothing changed — skip the API call.
+	if cm.Annotations[annotationConfigHash] == hash {
+		return nil
 	}
-	return nil
+
+	// Hash changed. Snapshot the current (presumably working) config before
+	// overwriting it. If the new config causes a crash-loop, rollbackConfig
+	// reads this annotation and writes it back as the active config.
+	if prev := cm.Data["vector.toml"]; prev != "" {
+		cm.Annotations[annotationLKGConfig] = prev
+		cm.Annotations[annotationLKGHash] = cm.Annotations[annotationConfigHash]
+	}
+	cm.Data["vector.toml"] = cfg
+	cm.Annotations[annotationConfigHash] = hash
+	return r.Update(ctx, cm)
 }
 
 // reconcileDeployment ensures the Vector Deployment exists and references the
@@ -298,11 +387,106 @@ func (r *TelemetryRouterReconciler) handleDeletion(
 	ctx context.Context, tr *telemetryv1.TelemetryRouter,
 ) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Handling deletion — draining finalizer", "name", tr.Name)
+	logger.Info("Handling deletion — waiting for Vector buffers to drain", "name", tr.Name)
 
-	// TODO: in production, wait for in-flight events to flush before removing
-	tr.Finalizers = removeString(tr.Finalizers, finalizerName)
-	return ctrl.Result{}, r.Update(ctx, tr)
+	// drainCheck simulates asking Vector whether its disk buffers are empty.
+	// In production this would call Vector's /health or /metrics endpoint and
+	// inspect the buffer_events gauge for each sink. We stub it here so the
+	// loop structure is realistic without needing a live Vector process.
+	attempt := 0
+	drainCheck := func() bool {
+		attempt++
+		// Pretend the buffers clear after 3 polls so the loop actually exits
+		// in tests. A real implementation would inspect Vector's internal metrics.
+		return attempt >= 3
+	}
+
+	// Poll until the buffers report empty, re-checking every 5 seconds.
+	// Two things can unblock each iteration:
+	//   - ctx.Done() → the operator received SIGTERM mid-deletion; give up so
+	//     Kubernetes doesn't wait forever for the finalizer to be removed.
+	//   - ticker.C   → time to ask Vector whether it has finished flushing.
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Operator is shutting down before the drain completed.
+			// Return the context error so controller-runtime re-queues the
+			// deletion on the next startup rather than silently swallowing it.
+			logger.Info("Context cancelled during drain — deferring finalizer removal", "name", tr.Name)
+			return ctrl.Result{}, ctx.Err()
+
+		case <-ticker.C:
+			// Ticker fired — check whether Vector has finished flushing.
+			if !drainCheck() {
+				logger.Info("Buffers still draining — will retry", "name", tr.Name, "attempt", attempt)
+				continue // stay in the loop, wait for the next tick
+			}
+
+			// Buffers are empty. Safe to remove the finalizer so Kubernetes
+			// can proceed with garbage-collecting the CR and its owned resources.
+			logger.Info("Buffers drained — removing finalizer", "name", tr.Name)
+			tr.Finalizers = removeString(tr.Finalizers, finalizerName)
+			return ctrl.Result{}, r.Update(ctx, tr)
+		}
+	}
+}
+
+// isVectorCrashLooping returns true if any pod in the Vector Deployment for
+// this TelemetryRouter has a container in the CrashLoopBackOff waiting state.
+// We inspect all pods (not just the latest) because during a rolling update
+// the old healthy pod and the new crashing pod coexist.
+func (r *TelemetryRouterReconciler) isVectorCrashLooping(
+	ctx context.Context, tr *telemetryv1.TelemetryRouter,
+) (bool, error) {
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList,
+		client.InNamespace(tr.Namespace),
+		client.MatchingLabels(vectorLabels(tr.Name)),
+	); err != nil {
+		return false, err
+	}
+	for _, pod := range podList.Items {
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Name == "vector" &&
+				cs.State.Waiting != nil &&
+				cs.State.Waiting.Reason == "CrashLoopBackOff" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// rollbackConfig restores the last-known-good TOML from the ConfigMap
+// annotation written by reconcileConfigMap before the previous overwrite.
+// It returns the hash of the restored config so the caller can drive the
+// Deployment back to the good state.
+func (r *TelemetryRouterReconciler) rollbackConfig(
+	ctx context.Context, tr *telemetryv1.TelemetryRouter,
+) (string, error) {
+	cm := &corev1.ConfigMap{}
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      vectorConfigMapName(tr.Name),
+		Namespace: tr.Namespace,
+	}, cm); err != nil {
+		return "", err
+	}
+
+	lkgCfg := cm.Annotations[annotationLKGConfig]
+	lkgHash := cm.Annotations[annotationLKGHash]
+	if lkgCfg == "" {
+		return "", fmt.Errorf("no last-known-good snapshot in ConfigMap annotations — cannot roll back")
+	}
+
+	// Restore the previous config. We intentionally do NOT clear the LKG
+	// annotation here so that a second rollback (if the LKG config itself is
+	// somehow also broken) doesn't lose the snapshot entirely.
+	cm.Data["vector.toml"] = lkgCfg
+	cm.Annotations[annotationConfigHash] = lkgHash
+	return lkgHash, r.Update(ctx, cm)
 }
 
 func (r *TelemetryRouterReconciler) setStatus(

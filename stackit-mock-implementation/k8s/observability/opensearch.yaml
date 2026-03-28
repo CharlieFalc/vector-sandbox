@@ -1,0 +1,101 @@
+---
+# ── OpenSearch — single-node dev instance ─────────────────────────────────────
+#
+# Deployed optionally via:  make apply-opensearch
+#
+# Key dev settings:
+#   - discovery.type=single-node        skip cluster election, boot immediately
+#   - DISABLE_SECURITY_PLUGIN=true      no TLS / auth (dev only)
+#   - JVM heap capped at 256m           keeps Docker Desktop happy
+#
+# Vector writes to index pattern: telemetry-logs-YYYY.MM.DD
+# Grafana reads from: http://opensearch.observability.svc.cluster.local:9200
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch
+  namespace: observability
+  labels:
+    app: opensearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      initContainers:
+        # OpenSearch requires vm.max_map_count ≥ 262144 for production.
+        # This init container sets it on the node so OpenSearch boots cleanly
+        # under Docker Desktop (which resets sysctl on pod restart otherwise).
+        - name: sysctl
+          image: busybox:1.36
+          securityContext:
+            privileged: true
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.15.0
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: transport
+              containerPort: 9300
+          env:
+            - name: discovery.type
+              value: single-node
+            # Disables the security plugin entirely — no TLS, no auth.
+            # Only safe for local dev. Remove for any shared environment.
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"
+            # Cap JVM heap so Docker Desktop doesn't OOM.
+            # 256m is enough for light dev indexing; bump to 512m if needed.
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms256m -Xmx256m"
+            - name: cluster.name
+              value: opensearch-dev
+            - name: node.name
+              value: opensearch-0
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  namespace: observability
+  labels:
+    app: opensearch
+spec:
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+  type: ClusterIP

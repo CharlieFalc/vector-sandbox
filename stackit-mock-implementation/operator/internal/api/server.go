@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,15 +17,49 @@ import (
 	telemetryv1 "github.com/stackit-mock/operator/api/v1alpha1"
 )
 
+// VectorHealthCache holds the most recently observed health state of the Vector
+// process. It is written by the health monitor goroutine in main.go and read by
+// the /api/v1/vector/health HTTP handler — two different goroutines accessing
+// the same memory, so all access goes through the RWMutex.
+//
+// sync.RWMutex lets multiple readers proceed concurrently (RLock) while
+// guaranteeing that a write (Lock) has exclusive access. Use RLock/RUnlock for
+// reads, Lock/Unlock for writes.
+type VectorHealthCache struct {
+	mu        sync.RWMutex
+	healthy   bool
+	message   string
+	lastCheck time.Time
+}
+
+// Set records the latest health state. Called by the health monitor goroutine.
+// Uses a full write lock because it modifies all three fields.
+func (c *VectorHealthCache) Set(healthy bool, message string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.healthy = healthy
+	c.message = message
+	c.lastCheck = time.Now().UTC()
+}
+
+// Get returns a snapshot of the current health state. Called by HTTP handlers.
+// Uses a read lock so concurrent GET requests don't block each other.
+func (c *VectorHealthCache) Get() (healthy bool, lastCheck time.Time, message string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.healthy, c.lastCheck, c.message
+}
+
 // Server exposes a simple REST API to manage TelemetryRouter CRs.
 // This mirrors what the STACKIT control-plane API would do for customers.
 type Server struct {
-	client    client.Client
-	namespace string
+	client       client.Client
+	namespace    string
+	vectorHealth *VectorHealthCache
 }
 
-func NewServer(c client.Client, namespace string) *Server {
-	return &Server{client: c, namespace: namespace}
+func NewServer(c client.Client, namespace string, cache *VectorHealthCache) *Server {
+	return &Server{client: c, namespace: namespace, vectorHealth: cache}
 }
 
 // RegisterRoutes wires up all HTTP handlers on the given mux.
@@ -31,12 +67,35 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/v1/routers", s.handleRouters)
 	mux.HandleFunc("/api/v1/routers/", s.handleRouterByName)
+	mux.HandleFunc("/api/v1/vector/health", s.handleVectorHealth)
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
+// handleHealthz is the operator's own liveness probe — it just confirms the
+// HTTP server is up and responding.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleVectorHealth returns the last known health state of the Vector process,
+// as observed by the health monitor goroutine. Reading from the cache is safe
+// because VectorHealthCache.Get() holds a read lock for the duration of the
+// copy — no data race with the monitor's concurrent writes.
+func (s *Server) handleVectorHealth(w http.ResponseWriter, r *http.Request) {
+	healthy, lastCheck, message := s.vectorHealth.Get()
+
+	status := http.StatusOK
+	if !healthy {
+		// Return 503 so load balancers and monitoring systems can act on it.
+		status = http.StatusServiceUnavailable
+	}
+
+	writeJSON(w, status, map[string]interface{}{
+		"healthy":   healthy,
+		"message":   message,
+		"lastCheck": lastCheck.Format(time.RFC3339),
+	})
 }
 
 // ── Collection: GET /api/v1/routers  POST /api/v1/routers ───────────────────
@@ -174,6 +233,11 @@ func (s *Server) patchRouter(w http.ResponseWriter, r *http.Request, name string
 	tr.Name = name
 	tr.Namespace = s.namespace
 
+	// After a successful Patch call, controller-runtime populates tr with the
+	// server's response — the object as it exists after the patch was applied.
+	// We return tr directly instead of doing a follow-up Get, because Get reads
+	// from the controller-runtime informer cache which may lag behind the write
+	// by several seconds and would return the pre-patch state (stale read).
 	if err := s.client.Patch(
 		r.Context(), &tr,
 		client.RawPatch(types.MergePatchType, patchBytes),
@@ -182,12 +246,6 @@ func (s *Server) patchRouter(w http.ResponseWriter, r *http.Request, name string
 			writeError(w, http.StatusNotFound, fmt.Errorf("router %q not found", name))
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	// Re-fetch to return the updated object
-	if err := s.client.Get(r.Context(), types.NamespacedName{Name: name, Namespace: s.namespace}, &tr); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

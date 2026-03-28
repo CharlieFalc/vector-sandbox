@@ -14,10 +14,16 @@ import (
 // configuration from a TelemetryRouter spec.
 //
 // Signal routing (Vector 0.51.1+):
-//   - Logs    → enrich (VRL) → loki sink
+//   - Logs    → enrich (VRL) → LOKI / OPENSEARCH sinks
 //   - Traces  → opentelemetry sink ([encoding] codec=otlp) → Tempo
 //   - Metrics → opentelemetry sink ([encoding] codec=otlp) → Prometheus OTLP receiver
 //   - Vector pipeline metrics → prometheus_remote_write sink
+//
+// Supported Destination types:
+//   LOKI        → loki sink (enriched logs)
+//   OPENSEARCH  → elasticsearch sink, OpenSearch-compatible (enriched logs)
+//   PROMETHEUS  → prometheus_remote_write sink (Vector internal metrics)
+//   OTLP        → opentelemetry sink (traces)
 //
 // NOTE: Go template delimiters are [[ ]] so Vector's own {{ }} label templates
 // can appear literally in the output without escaping.
@@ -119,13 +125,39 @@ when_full  = "drop_newest"
 # Remove this block once Vector version supports metric egress via opentelemetry sink.
 [[- else if eq .Type "OTLP" ]]
 # ── OTLP sink — traces forwarded as native OTLP (Vector 0.51+ opentelemetry sink)
+# encoding.codec must be set inline (dotted key) rather than as a sub-table
+# [sinks.sink_x.encoding] — Vector's serde requires it in the table body.
 [sinks.sink_[[ .Name | sanitize ]]]
-type   = "opentelemetry"
-inputs = ["otlp_in.traces"]
+type            = "opentelemetry"
+inputs          = ["otlp_in.traces"]
+encoding.codec  = "otlp"
 
 [sinks.sink_[[ .Name | sanitize ]].protocol]
 type = "http"
 uri  = "[[ .Endpoint ]]/v1/traces"
+
+[sinks.sink_[[ .Name | sanitize ]].buffer]
+type       = "memory"
+max_events = 50000
+when_full  = "drop_newest"
+
+[[- else if eq .Type "OPENSEARCH" ]]
+# ── OpenSearch sink — enriched log events ────────────────────────────────────
+# Uses Vector's elasticsearch sink type (OpenSearch 2.x is API-compatible).
+# suppress_type_name drops the deprecated _type field that OpenSearch 2.x
+# removed from the document indexing API.
+[sinks.sink_[[ .Name | sanitize ]]]
+type                = "elasticsearch"
+inputs              = ["enrich"]
+endpoints           = ["[[ .Endpoint ]]"]
+suppress_type_name  = true
+
+# In Vector 0.39+, index is configured under the [bulk] section,
+# not as a top-level field. The %Y.%m.%d tokens are expanded by
+# Vector at runtime using the event timestamp.
+[sinks.sink_[[ .Name | sanitize ]].bulk]
+action = "create"
+index  = "telemetry-logs-%Y.%m.%d"
 
 [sinks.sink_[[ .Name | sanitize ]].buffer]
 type       = "memory"

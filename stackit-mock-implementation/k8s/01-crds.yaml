@@ -67,7 +67,7 @@ spec:
                         type: string
                       type:
                         type: string
-                        enum: [OTLP, LOKI, PROMETHEUS]
+                        enum: [OTLP, LOKI, PROMETHEUS, OPENSEARCH]
                       endpoint:
                         type: string
             status:

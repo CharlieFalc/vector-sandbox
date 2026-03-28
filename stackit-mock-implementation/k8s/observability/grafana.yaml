@@ -54,6 +54,25 @@ data:
             hide: false
           lokiSearch:
             datasourceUid: loki
+
+      # OpenSearch datasource — provisioned when 'make apply-opensearch' is run.
+      # Uses the grafana-opensearch-datasource plugin (installed via GF_INSTALL_PLUGINS)
+      # rather than the built-in elasticsearch type. Grafana 11 dropped support for
+      # the built-in elasticsearch datasource with ES versions < 7.16, and OpenSearch
+      # 2.x reports itself as 7.10.2 — so the built-in type shows a blocking warning.
+      # The dedicated OpenSearch plugin handles the version difference correctly.
+      - name: OpenSearch
+        type: grafana-opensearch-datasource
+        uid: opensearch
+        url: http://opensearch.observability.svc.cluster.local:9200
+        access: proxy
+        jsonData:
+          database: "telemetry-logs-*"
+          flavor: "OpenSearch"
+          version: "2.15.0"
+          timeField: "@timestamp"
+          logMessageField: "message"
+          maxConcurrentShardRequests: 5
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -200,6 +219,83 @@ data:
       ]
     }
 ---
+# OpenSearch logs dashboard — auto-provisioned alongside grafana-dashboard-price-service.
+# Visible in Grafana under: STACKIT Mock → OpenSearch Logs
+# Requires: make apply-opensearch (deploys OpenSearch + patches TelemetryRouter)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-opensearch
+  namespace: observability
+data:
+  opensearch-logs.json: |
+    {
+      "title": "OpenSearch — Incoming Logs",
+      "uid": "opensearch-logs",
+      "tags": ["stackit-mock", "opensearch", "vector"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "15s",
+      "time": {"from": "now-30m", "to": "now"},
+      "panels": [
+        {
+          "id": 1,
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "type": "stat",
+          "title": "Documents Indexed",
+          "datasource": {"uid": "opensearch"},
+          "targets": [{
+            "query": "*",
+            "metrics": [{"type": "count", "id": "1"}],
+            "timeField": "@timestamp",
+            "refId": "A"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "blue", "value": 1000}]}
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+        },
+        {
+          "id": 2,
+          "gridPos": {"h": 4, "w": 18, "x": 6, "y": 0},
+          "type": "timeseries",
+          "title": "Log Ingestion Rate (docs / min)",
+          "datasource": {"uid": "opensearch"},
+          "targets": [{
+            "query": "*",
+            "metrics": [{"type": "count", "id": "1"}],
+            "bucketAggs": [{"type": "date_histogram", "field": "@timestamp", "id": "2", "settings": {"interval": "1m", "min_doc_count": "0"}}],
+            "timeField": "@timestamp",
+            "refId": "A"
+          }],
+          "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"fillOpacity": 10}}}
+        },
+        {
+          "id": 3,
+          "gridPos": {"h": 14, "w": 24, "x": 0, "y": 4},
+          "type": "logs",
+          "title": "Price Service Logs (via Vector → OpenSearch)",
+          "datasource": {"uid": "opensearch"},
+          "targets": [{
+            "query": "*",
+            "metrics": [{"type": "logs", "id": "1", "settings": {"limit": "500"}}],
+            "timeField": "@timestamp",
+            "refId": "A"
+          }],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -232,8 +328,12 @@ spec:
               value: "true"
             - name: GF_FEATURE_TOGGLES_ENABLE
               value: "traceqlEditor tempoApmTable traceToMetrics"
+            # grafana-opensearch-datasource is required for OpenSearch 2.x support.
+            # Grafana 11 removed built-in ES datasource support for versions < 7.16,
+            # and OpenSearch 2.x reports ES 7.10.2 compatibility — so the dedicated
+            # plugin is the correct way to connect. Downloaded on pod startup.
             - name: GF_INSTALL_PLUGINS
-              value: ""
+              value: "grafana-opensearch-datasource"
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
@@ -263,9 +363,16 @@ spec:
         - name: dashboard-config
           configMap:
             name: grafana-dashboards-config
+        # projected merges multiple ConfigMaps into a single directory so both
+        # dashboard JSON files land in /var/lib/grafana/dashboards and Grafana
+        # picks them up automatically via the file provider.
         - name: dashboards
-          configMap:
-            name: grafana-dashboard-price-service
+          projected:
+            sources:
+              - configMap:
+                  name: grafana-dashboard-price-service
+              - configMap:
+                  name: grafana-dashboard-opensearch
         - name: data
           emptyDir: {}
 ---

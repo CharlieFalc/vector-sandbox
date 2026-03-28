@@ -39,6 +39,9 @@ start)
     start_forward "vector"      "telemetry-system" "svc/vector"               9598 9598
     # Customer price-service
     start_forward "price-svc"   "customer-app"     "svc/price-service"        8000 8000
+    # OpenSearch (optional — only present after 'make apply-opensearch')
+    kubectl get svc opensearch -n observability >/dev/null 2>&1 && \
+        start_forward "opensearch" "observability" "svc/opensearch" 9200 9200 || true
 
     echo ""
     echo "✅  Port-forwards started (PIDs in /tmp/pf-*.log)"
@@ -52,6 +55,7 @@ start)
     echo "   Operator API   http://localhost:8080/api/v1/routers"
     echo "   Vector metrics http://localhost:9598/metrics"
     echo "   Price Service  http://localhost:8000"
+    echo "   OpenSearch     http://localhost:9200  (if apply-opensearch was run)"
     ;;
 
 stop)

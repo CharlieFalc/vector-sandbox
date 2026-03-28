@@ -53,6 +53,12 @@ type Destination struct {
 type TelemetryRouterStatus struct {
 	Phase            string `json:"phase,omitempty"`
 	VectorConfigHash string `json:"vectorConfigHash,omitempty"`
+	// LastKnownGoodHash is the config hash of the most recent rollout that
+	// passed the post-rollout health check. Used as the rollback target.
+	LastKnownGoodHash string `json:"lastKnownGoodHash,omitempty"`
+	// BadConfigHash is set when a config causes a Vector crash-loop. Reconcile
+	// skips re-applying this hash until the spec produces a different one.
+	BadConfigHash    string `json:"badConfigHash,omitempty"`
 	ReadyReplicas    int32  `json:"readyReplicas,omitempty"`
 	Message          string `json:"message,omitempty"`
 	LastReconcileAt  string `json:"lastReconcileAt,omitempty"`
