@@ -166,7 +166,20 @@ func (r *TelemetryRouterReconciler) reconcileDeployment(
 		return err
 	}
 
-	// Update replicas and config hash annotation to trigger rolling update
+	// Only update if something actually changed — avoids unnecessary pod churn.
+	// The config hash is the primary change signal; we also check replicas and
+	// image in case the TelemetryRouter spec was edited directly.
+	currentHash := dep.Spec.Template.Annotations["telemetry.stackit.local/config-hash"]
+	currentReplicas := int32(1)
+	if dep.Spec.Replicas != nil {
+		currentReplicas = *dep.Spec.Replicas
+	}
+	if currentHash == cfgHash &&
+		currentReplicas == replicas &&
+		dep.Spec.Template.Spec.Containers[0].Image == vectorImage {
+		return nil // nothing changed, skip the API call
+	}
+
 	dep.Spec.Replicas = &replicas
 	dep.Spec.Template.Annotations["telemetry.stackit.local/config-hash"] = cfgHash
 	dep.Spec.Template.Spec.Containers[0].Image = vectorImage
