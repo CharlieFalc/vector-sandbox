@@ -43,9 +43,12 @@ data:
             datasourceUid: loki
             spanStartTimeShift: "-1m"
             spanEndTimeShift: "1m"
-            filterByTraceID: true
+            filterByTraceID: false
             customQuery: true
-            query: '{service_name="${__span.tags.service_name}"} | json | trace_id="${__trace.traceId}"'
+            tags:
+              - key: service.name
+                value: service_name
+            query: '{service_name="${__tags.service_name}"} | json | trace_id="${__span.traceId}"'
           serviceMap:
             datasourceUid: prometheus
           nodeGraph:
@@ -70,7 +73,10 @@ data:
           database: "telemetry-logs-*"
           flavor: "OpenSearch"
           version: "2.15.0"
-          timeField: "@timestamp"
+          # Vector's OTLP log source writes the event time as "timestamp",
+          # not "@timestamp". Grafana uses this field for all time-range
+          # filtering — wrong value = every query returns zero results.
+          timeField: "timestamp"
           logMessageField: "message"
           maxConcurrentShardRequests: 5
 ---
@@ -147,13 +153,13 @@ data:
           "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]}}}
         },
         {
-          "id": 5, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5, "gridPos": {"h": 8, "w": 6, "x": 0, "y": 4},
           "type": "timeseries", "title": "Request Rate by Endpoint",
           "datasource": {"uid": "prometheus"},
           "targets": [{"expr": "sum by (span_name) (increase(traces_spanmetrics_calls_total{service=\"price-service\",span_kind=\"SPAN_KIND_SERVER\",span_name!=\"GET /health\"}[5m])) / 300", "legendFormat": "{{span_name}}"}]
         },
         {
-          "id": 6, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6, "gridPos": {"h": 8, "w": 6, "x": 6, "y": 4},
           "type": "timeseries", "title": "Latency Percentiles",
           "datasource": {"uid": "prometheus"},
           "targets": [
@@ -164,7 +170,7 @@ data:
           "fieldConfig": {"defaults": {"unit": "s"}}
         },
         {
-          "id": 7, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7, "gridPos": {"h": 8, "w": 6, "x": 12, "y": 4},
           "type": "timeseries", "title": "Vector — Events Processed",
           "datasource": {"uid": "prometheus"},
           "targets": [
@@ -173,7 +179,14 @@ data:
           ]
         },
         {
-          "id": 8, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 9, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+          "type": "logs", "title": "Price Service Logs (via Vector → Loki)",
+          "datasource": {"uid": "loki"},
+          "targets": [{"expr": "{service_name=\"price-service\"}", "legendFormat": ""}],
+          "options": {"showTime": true, "sortOrder": "Descending", "wrapLogMessage": false, "enableLogDetails": true}
+        },
+        {
+          "id": 8, "gridPos": {"h": 8, "w": 6, "x": 18, "y": 4},
           "type": "timeseries", "title": "Vector — Buffer Utilisation",
           "datasource": {"uid": "prometheus"},
           "targets": [
@@ -182,113 +195,35 @@ data:
           ]
         },
         {
-          "id": 9, "gridPos": {"h": 10, "w": 24, "x": 0, "y": 20},
-          "type": "logs", "title": "Price Service Logs (via Vector → Loki)",
-          "datasource": {"uid": "loki"},
-          "targets": [{"expr": "{service_name=\"price-service\"}", "legendFormat": ""}],
-          "options": {"showTime": true, "sortOrder": "Descending", "wrapLogMessage": true, "enableLogDetails": true}
-        },
-        {
-          "id": 10, "gridPos": {"h": 10, "w": 24, "x": 0, "y": 30},
-          "type": "table", "title": "Tempo Service Graph (Edge Health)",
-          "datasource": {"uid": "prometheus"},
-          "targets": [
-            {
-              "expr": "sum by (client, server) (rate(traces_service_graph_request_total[5m]))",
-              "legendFormat": "req/s",
-              "format": "table",
-              "instant": true
-            },
-            {
-              "expr": "100 * sum by (client, server) (rate(traces_service_graph_request_failed_total[5m])) / clamp_min(sum by (client, server) (rate(traces_service_graph_request_total[5m])), 1e-9)",
-              "legendFormat": "error_pct",
-              "format": "table",
-              "instant": true
-            },
-            {
-              "expr": "1000 * sum by (client, server) (rate(traces_service_graph_request_server_seconds_sum[5m])) / clamp_min(sum by (client, server) (rate(traces_service_graph_request_server_seconds_count[5m])), 1e-9)",
-              "legendFormat": "avg_latency_ms",
-              "format": "table",
-              "instant": true
-            }
-          ],
-          "options": {
-            "showHeader": true
-          }
-        }
-      ]
-    }
----
-# OpenSearch logs dashboard — auto-provisioned alongside grafana-dashboard-price-service.
-# Visible in Grafana under: STACKIT Mock → OpenSearch Logs
-# Requires: make apply-opensearch (deploys OpenSearch + patches TelemetryRouter)
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboard-opensearch
-  namespace: observability
-data:
-  opensearch-logs.json: |
-    {
-      "title": "OpenSearch — Incoming Logs",
-      "uid": "opensearch-logs",
-      "tags": ["stackit-mock", "opensearch", "vector"],
-      "timezone": "browser",
-      "schemaVersion": 38,
-      "refresh": "15s",
-      "time": {"from": "now-30m", "to": "now"},
-      "panels": [
-        {
-          "id": 1,
-          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
-          "type": "stat",
-          "title": "Documents Indexed",
-          "datasource": {"uid": "opensearch"},
+          "id": 10, "gridPos": {"h": 9, "w": 24, "x": 0, "y": 12},
+          "type": "table", "title": "Recent Traces — price-service",
+          "datasource": {"uid": "tempo"},
           "targets": [{
-            "query": "*",
-            "metrics": [{"type": "count", "id": "1"}],
-            "timeField": "@timestamp",
+            "datasource": {"type": "tempo", "uid": "tempo"},
+            "queryType": "traceql",
+            "query": "{resource.service.name=\"price-service\"}",
+            "limit": 20,
+            "tableType": "traces",
             "refId": "A"
           }],
-          "fieldConfig": {
-            "defaults": {
-              "color": {"mode": "thresholds"},
-              "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "blue", "value": 1000}]}
-            }
-          },
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+          "options": {"showHeader": true}
         },
         {
-          "id": 2,
-          "gridPos": {"h": 4, "w": 18, "x": 6, "y": 0},
-          "type": "timeseries",
-          "title": "Log Ingestion Rate (docs / min)",
-          "datasource": {"uid": "opensearch"},
-          "targets": [{
-            "query": "*",
-            "metrics": [{"type": "count", "id": "1"}],
-            "bucketAggs": [{"type": "date_histogram", "field": "@timestamp", "id": "2", "settings": {"interval": "1m", "min_doc_count": "0"}}],
-            "timeField": "@timestamp",
-            "refId": "A"
-          }],
-          "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"fillOpacity": 10}}}
-        },
-        {
-          "id": 3,
-          "gridPos": {"h": 14, "w": 24, "x": 0, "y": 4},
+          "id": 12, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
           "type": "logs",
           "title": "Price Service Logs (via Vector → OpenSearch)",
+          "description": "Populated after 'make apply-opensearch' — shows No data until the OpenSearch sink is added to the TelemetryRouter.",
           "datasource": {"uid": "opensearch"},
           "targets": [{
             "query": "*",
             "metrics": [{"type": "logs", "id": "1", "settings": {"limit": "500"}}],
-            "timeField": "@timestamp",
+            "timeField": "timestamp",
             "refId": "A"
           }],
           "options": {
             "showTime": true,
             "sortOrder": "Descending",
-            "wrapLogMessage": true,
+            "wrapLogMessage": false,
             "enableLogDetails": true,
             "dedupStrategy": "none"
           }
@@ -363,16 +298,11 @@ spec:
         - name: dashboard-config
           configMap:
             name: grafana-dashboards-config
-        # projected merges multiple ConfigMaps into a single directory so both
-        # dashboard JSON files land in /var/lib/grafana/dashboards and Grafana
-        # picks them up automatically via the file provider.
         - name: dashboards
           projected:
             sources:
               - configMap:
                   name: grafana-dashboard-price-service
-              - configMap:
-                  name: grafana-dashboard-opensearch
         - name: data
           emptyDir: {}
 ---

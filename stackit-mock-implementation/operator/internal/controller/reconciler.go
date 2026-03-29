@@ -36,7 +36,9 @@ const (
 	// rolloutValidationWindow is how long the operator waits after pushing a
 	// new config before checking whether Vector has started cleanly.
 	// Should comfortably exceed Vector's startup time + readiness probe window.
-	rolloutValidationWindow = 45 * time.Second
+	// Vector typically passes its /health probe within 5-10s; 20s gives a
+	// comfortable buffer for crash-looping to surface before promoting to Ready.
+	rolloutValidationWindow = 20 * time.Second
 )
 
 // TelemetryRouterReconciler watches TelemetryRouter CRDs and manages
@@ -107,7 +109,29 @@ func (r *TelemetryRouterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// config and scheduled a requeue. On this pass we inspect the Vector pods:
 	//   • CrashLoopBackOff → roll back to the last-known-good config
 	//   • All healthy       → promote the new config to last-known-good
+	//
+	// IMPORTANT: status updates (r.Status().Update) generate a watch event that
+	// immediately re-triggers the reconciler. Without the elapsed-time guard
+	// below, those watch-triggered reconciles would run this health check far
+	// too early — before Vector has had time to either start cleanly or enter
+	// CrashLoopBackOff — and would falsely promote a crashing config.
 	if tr.Status.Phase == "Validating" && cfgHash == tr.Status.VectorConfigHash {
+		// Enforce the validation window before running any health check.
+		elapsed := rolloutValidationWindow // default: assume window has passed
+		if tr.Status.ValidatingStartedAt != "" {
+			if startedAt, parseErr := time.Parse(time.RFC3339, tr.Status.ValidatingStartedAt); parseErr == nil {
+				elapsed = time.Since(startedAt)
+			}
+		}
+		if elapsed < rolloutValidationWindow {
+			remaining := rolloutValidationWindow - elapsed
+			logger.Info("Validation window still open — deferring health check",
+				"elapsed", elapsed.Round(time.Second),
+				"remaining", remaining.Round(time.Second))
+			// Return without a status update — no watch event, no premature loop.
+			return ctrl.Result{RequeueAfter: remaining}, nil
+		}
+
 		crashing, err := r.isVectorCrashLooping(ctx, &tr)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -161,20 +185,44 @@ func (r *TelemetryRouterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// or after a spec edit), enter the "Validating" phase and schedule a
 	// requeue after the rollout window. The next reconcile will check pod health.
 	if cfgHash != tr.Status.LastKnownGoodHash {
+		// Already in Validating for this hash — the status write already happened.
+		// Don't re-write it; that would emit another watch event and restart the
+		// validation timer (overwriting ValidatingStartedAt).
+		if tr.Status.Phase == "Validating" && tr.Status.VectorConfigHash == cfgHash {
+			logger.Info("Already in validation window — waiting for timer",
+				"hash", cfgHash)
+			return ctrl.Result{RequeueAfter: rolloutValidationWindow}, nil
+		}
 		logger.Info("New config deployed — entering validation window",
 			"hash", cfgHash, "window", rolloutValidationWindow)
-		tr.Status.Phase           = "Validating"
-		tr.Status.VectorConfigHash = cfgHash
-		tr.Status.Message         = fmt.Sprintf(
+		tr.Status.Phase              = "Validating"
+		tr.Status.VectorConfigHash   = cfgHash
+		tr.Status.ValidatingStartedAt = time.Now().UTC().Format(time.RFC3339)
+		tr.Status.Message             = fmt.Sprintf(
 			"validating config %s — will roll back automatically on crash-loop", cfgHash)
 		tr.Status.LastReconcileAt = time.Now().UTC().Format(time.RFC3339)
 		return ctrl.Result{RequeueAfter: rolloutValidationWindow}, r.Status().Update(ctx, &tr)
 	}
 
-	tr.Status.Phase           = "Ready"
-	tr.Status.VectorConfigHash = cfgHash
-	tr.Status.Message         = "Vector deployment running"
-	tr.Status.LastReconcileAt = time.Now().UTC().Format(time.RFC3339)
+	// Config hash matches LastKnownGoodHash — this is steady state.
+	// CRITICAL: skip the status write when we're already reporting Ready with
+	// the same hash. r.Status().Update() triggers a watch event on the
+	// TelemetryRouter, which immediately re-queues a reconcile. Without this
+	// guard every reconcile loop would write a new status (even if only
+	// LastReconcileAt changed), causing an infinite reconcile storm.
+	if tr.Status.Phase == "Ready" && tr.Status.VectorConfigHash == cfgHash {
+		logger.Info("Reconcile complete (steady state — no status change)",
+			"name", tr.Name, "hash", cfgHash)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	// First time reaching Ready for this hash (e.g. fresh deploy, or just
+	// promoted from Validating). Write the status once, then stay quiet.
+	tr.Status.Phase              = "Ready"
+	tr.Status.VectorConfigHash   = cfgHash
+	tr.Status.ValidatingStartedAt = "" // clear — no longer validating
+	tr.Status.Message             = "Vector deployment running"
+	tr.Status.LastReconcileAt     = time.Now().UTC().Format(time.RFC3339)
 	if err := r.Status().Update(ctx, &tr); err != nil {
 		return ctrl.Result{}, err
 	}

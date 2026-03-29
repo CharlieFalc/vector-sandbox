@@ -58,10 +58,16 @@ type TelemetryRouterStatus struct {
 	LastKnownGoodHash string `json:"lastKnownGoodHash,omitempty"`
 	// BadConfigHash is set when a config causes a Vector crash-loop. Reconcile
 	// skips re-applying this hash until the spec produces a different one.
-	BadConfigHash    string `json:"badConfigHash,omitempty"`
-	ReadyReplicas    int32  `json:"readyReplicas,omitempty"`
-	Message          string `json:"message,omitempty"`
-	LastReconcileAt  string `json:"lastReconcileAt,omitempty"`
+	BadConfigHash string `json:"badConfigHash,omitempty"`
+	// ValidatingStartedAt records when the operator first entered the Validating
+	// phase for the current VectorConfigHash. Used to enforce the rollout
+	// validation window even when spurious watch events (e.g. from the
+	// Validating status write itself) trigger early reconciles before Vector
+	// has had enough time to either stabilise or enter CrashLoopBackOff.
+	ValidatingStartedAt string `json:"validatingStartedAt,omitempty"`
+	ReadyReplicas       int32  `json:"readyReplicas,omitempty"`
+	Message             string `json:"message,omitempty"`
+	LastReconcileAt     string `json:"lastReconcileAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true

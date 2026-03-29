@@ -116,18 +116,20 @@ deploy-crds:
 	kubectl wait --for=condition=established --timeout=30s \
 	    crd/telemetryrouters.telemetry.stackit.local
 
-## deploy-observability: Deploy Prometheus, Loki, Tempo, Grafana
+## deploy-observability: Deploy Prometheus, Loki, Tempo, Grafana, OpenSearch
 deploy-observability: deploy-namespaces
-	@echo "▶  Deploying observability stack (Prometheus / Loki / Tempo / Grafana)"
+	@echo "▶  Deploying observability stack (Prometheus / Loki / Tempo / Grafana / OpenSearch)"
 	kubectl apply -f $(K8S_DIR)/observability/prometheus.yaml
 	kubectl apply -f $(K8S_DIR)/observability/loki.yaml
 	kubectl apply -f $(K8S_DIR)/observability/tempo.yaml
 	kubectl apply -f $(K8S_DIR)/observability/grafana.yaml
-	@echo "   Waiting for observability pods to be ready (up to 120s)..."
-	kubectl rollout status deployment/prometheus -n observability --timeout=120s || true
+	kubectl apply -f $(K8S_DIR)/observability/opensearch.yaml
+	@echo "   Waiting for observability pods to be ready (up to 3 minutes)..."
+	kubectl rollout status deployment/prometheus  -n observability --timeout=120s || true
 	kubectl rollout status deployment/loki        -n observability --timeout=120s || true
 	kubectl rollout status deployment/tempo       -n observability --timeout=240s || true
 	kubectl rollout status deployment/grafana     -n observability --timeout=120s || true
+	kubectl rollout status deployment/opensearch  -n observability --timeout=180s || true
 
 ## deploy-operator: Deploy RBAC + operator (expects image already built)
 deploy-operator: deploy-namespaces deploy-crds
@@ -155,8 +157,8 @@ hotfix-operator: build-operator load-images
 	kubectl rollout restart deployment/telemetry-operator -n $(OPERATOR_NAMESPACE)
 	kubectl rollout status  deployment/telemetry-operator -n $(OPERATOR_NAMESPACE) --timeout=90s
 
-## hotfix-operator-and-validate: Rebuild operator image + restart + dump diagnostics for vector pod
-hotfix-operator-and-validate: hotfix-operator
+## hotfix-operator-validate: Rebuild operator image + restart + dump diagnostics for vector pod
+hotfix-operator-validate: hotfix-operator
 	@echo "▶  Wait for vector pods to settle"
 	kubectl rollout status deployment -n $(OPERATOR_NAMESPACE) -l app=vector --timeout=90s || true
 	@echo "▶  Pod summary"
@@ -197,13 +199,17 @@ create-router:
 	@echo "▶  Creating TelemetryRouter CR: main-router"
 	kubectl apply -f $(K8S_DIR)/telemetry-router-cr.yaml
 	@echo "   Waiting for router to reach Ready phase..."
-	@for i in $$(seq 1 20); do \
+	@last_phase=""; \
+	for i in $$(seq 1 30); do \
 	    phase=$$(kubectl get telemetryrouter main-router \
 	                -n $(OPERATOR_NAMESPACE) \
 	                -o jsonpath='{.status.phase}' 2>/dev/null || echo ""); \
-	    echo "   phase=$$phase"; \
+	    if [ "$$phase" != "$$last_phase" ] && [ -n "$$phase" ]; then \
+	        echo "   ↳ $$phase"; \
+	        last_phase="$$phase"; \
+	    fi; \
 	    if [ "$$phase" = "Ready" ]; then break; fi; \
-	    sleep 3; \
+	    sleep 2; \
 	done
 	@echo ""
 	kubectl get telemetryrouter -n $(OPERATOR_NAMESPACE)
@@ -212,40 +218,27 @@ create-router:
 delete-router:
 	kubectl delete -f $(K8S_DIR)/telemetry-router-cr.yaml --ignore-not-found
 
-# ── OpenSearch optional sink ──────────────────────────────────────────────────
+# ── OpenSearch sink demo ───────────────────────────────────────────────────────
+# OpenSearch is deployed as part of deploy-observability. This target only patches
+# the TelemetryRouter CR to add the OPENSEARCH sink, which triggers the operator
+# to re-render the Vector config and roll a new pod — no Grafana restart needed.
 
-## apply-opensearch: Deploy OpenSearch, patch TelemetryRouter to add it as a sink, validate
-## apply-opensearch: Demonstrates the core operator use-case: a customer calls the API to
-## apply-opensearch: add a new log sink and the operator reconciles without any restarts.
+## apply-opensearch: Patch TelemetryRouter to add OpenSearch as a live log sink (operator demo)
 apply-opensearch: deploy-namespaces
 	@echo ""
 	@echo "════════════════════════════════════════════════════════"
-	@echo "  Step 0 — Update CRD (add OPENSEARCH to allowed types)"
+	@echo "  Step 1 — Ensure OpenSearch is running"
 	@echo "════════════════════════════════════════════════════════"
-	kubectl apply -f $(K8S_DIR)/01-crds.yaml
-	kubectl wait --for=condition=established --timeout=30s \
-	    crd/telemetryrouters.telemetry.stackit.local
-
+	@if kubectl get deployment opensearch -n observability &>/dev/null; then \
+	    echo "   OpenSearch already deployed — skipping"; \
+	else \
+	    echo "   Deploying OpenSearch..."; \
+	    kubectl apply -f $(K8S_DIR)/observability/opensearch.yaml; \
+	    kubectl rollout status deployment/opensearch -n observability --timeout=180s; \
+	fi
 	@echo ""
 	@echo "════════════════════════════════════════════════════════"
-	@echo "  Step 1 — Deploy OpenSearch"
-	@echo "════════════════════════════════════════════════════════"
-	kubectl apply -f $(K8S_DIR)/observability/opensearch.yaml
-	@echo "   Waiting for OpenSearch to be ready (up to 3 minutes)..."
-	kubectl rollout status deployment/opensearch -n observability --timeout=180s
-
-	@echo ""
-	@echo "════════════════════════════════════════════════════════"
-	@echo "  Step 2 — Update Grafana provisioning"
-	@echo "════════════════════════════════════════════════════════"
-	@echo "   Re-applying grafana.yaml to pick up OpenSearch datasource + dashboard..."
-	kubectl apply -f $(K8S_DIR)/observability/grafana.yaml
-	kubectl rollout restart deployment/grafana -n observability
-	kubectl rollout status  deployment/grafana -n observability --timeout=60s
-
-	@echo ""
-	@echo "════════════════════════════════════════════════════════"
-	@echo "  Step 3 — Add OpenSearch sink to main-router"
+	@echo "  Step 2 — Add OpenSearch sink to main-router"
 	@echo "════════════════════════════════════════════════════════"
 	@echo "   Appending opensearch destination to TelemetryRouter spec..."
 	@echo "   The operator detects the spec change, re-renders the Vector config,"
@@ -259,7 +252,7 @@ apply-opensearch: deploy-namespaces
 
 	@echo ""
 	@echo "════════════════════════════════════════════════════════"
-	@echo "  Step 4 — Waiting for operator to reconcile"
+	@echo "  Step 3 — Waiting for operator to reconcile"
 	@echo "════════════════════════════════════════════════════════"
 	@echo "   Giving the operator 30s to render new Vector config and"
 	@echo "   roll a new Vector pod with the opensearch sink..."
@@ -268,7 +261,7 @@ apply-opensearch: deploy-namespaces
 
 	@echo ""
 	@echo "════════════════════════════════════════════════════════"
-	@echo "  Step 5 — Generate traffic & validate"
+	@echo "  Step 4 — Generate traffic & validate"
 	@echo "════════════════════════════════════════════════════════"
 	@echo "   Sending a burst of test events..."
 	@curl -s http://localhost:$(CUSTOMER_PORT)/simulate >/dev/null 2>&1 \
@@ -294,7 +287,9 @@ apply-opensearch: deploy-namespaces
 	@echo "  Done — open Grafana to see the data"
 	@echo "════════════════════════════════════════════════════════"
 	@echo "   Grafana → http://localhost:$(GRAFANA_PORT)"
-	@echo "   Folder  → STACKIT Mock → OpenSearch Logs"
+	@echo "   Dashboard → STACKIT Mock → Price Service — Telemetry Overview"
+	@echo "   Scroll to the bottom for the OpenSearch panels:"
+	@echo "     • Price Service Logs (via Vector → OpenSearch)"
 	@echo ""
 	@echo "   Or query OpenSearch directly:"
 	@echo "     kubectl exec -n observability deploy/opensearch -- \\"
@@ -409,6 +404,12 @@ logs-customer:
 ## teardown: Delete all K8s resources (namespaces + everything inside them)
 teardown: stop-port-forward
 	@echo "▶  Tearing down STACKIT mock deployment..."
+	@echo "   Stripping drain finalizer from any TelemetryRouter CRs..."
+	@kubectl get telemetryrouters -n telemetry-system -o name 2>/dev/null | \
+	    xargs -I{} kubectl patch {} -n telemetry-system \
+	        --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' \
+	        2>/dev/null || true
+	@echo "   Deleting namespaces..."
 	kubectl delete namespace customer-app    --ignore-not-found --timeout=60s &
 	kubectl delete namespace telemetry-system --ignore-not-found --timeout=60s &
 	kubectl delete namespace observability   --ignore-not-found --timeout=60s &
@@ -420,12 +421,51 @@ teardown: stop-port-forward
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
-## help: List all available make targets with descriptions
+## help: Show this help message
 help:
 	@echo ""
 	@echo "STACKIT Telemetry Router — Local Demo"
-	@echo "════════════════════════════════════════════════════════"
-	@grep -E '^## [a-zA-Z_-]+:' $(MAKEFILE_LIST) | \
-	    sed 's/## //' | \
-	    awk -F: '{printf "  %-25s %s\n", $$1, $$2}'
+	@echo "════════════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "SETUP"
+	@echo "  deploy-all                  Build images + deploy every component (full fresh start)"
+	@echo "  build-images                Build operator + customer-app Docker images"
+	@echo "  load-images                 Import locally-built images into the K8s node runtime"
+	@echo "  build-operator              Build only the Go operator image"
+	@echo "  build-customer              Build only the Python price-service image"
+	@echo ""
+	@echo "DEPLOY"
+	@echo "  deploy-namespaces           Create customer-app / telemetry-system / observability namespaces"
+	@echo "  deploy-crds                 Install the TelemetryRouter CRD"
+	@echo "  deploy-observability        Deploy Prometheus, Loki, Tempo, Grafana, OpenSearch"
+	@echo "  deploy-operator             Deploy RBAC + operator (image must already be built)"
+	@echo "  deploy-customer-app         Deploy the price-service into customer-app namespace"
+	@echo ""
+	@echo "ROUTER"
+	@echo "  create-router               Apply the default TelemetryRouter CR (main-router)"
+	@echo "  delete-router               Delete the TelemetryRouter CR"
+	@echo "  apply-opensearch            Add OpenSearch sink to main-router — triggers live reconcile (demo)"
+	@echo "  teardown-opensearch         Remove OpenSearch sink from the cluster"
+	@echo ""
+	@echo "HOTFIX  (rebuild without full teardown)"
+	@echo "  hotfix-operator             Rebuild operator image + rolling restart (CR + Vector stay alive)"
+	@echo "  hotfix-operator-validate    Rebuild operator + restart + dump Vector diagnostics"
+	@echo "  hotfix-customer             Rebuild price-service image + rolling restart"
+	@echo "  hotfix-observability        Re-apply observability manifests (e.g. Prometheus config change)"
+	@echo ""
+	@echo "DEV"
+	@echo "  port-forward                Open localhost tunnels for all services (background)"
+	@echo "  stop-port-forward           Kill all port-forward background processes"
+	@echo "  simulate                    Hit /simulate to generate a burst of test traffic"
+	@echo "  simulate-buffer             Demo Vector backpressure: scale Loki down, run load, restore"
+	@echo "  test                        Run full test script (endpoints + telemetry validation)"
+	@echo "  status                      Quick health summary of all pods + TelemetryRouter CR"
+	@echo ""
+	@echo "LOGS"
+	@echo "  logs-operator               Stream operator logs"
+	@echo "  logs-vector                 Stream Vector logs (managed by operator)"
+	@echo "  logs-customer               Stream price-service logs"
+	@echo ""
+	@echo "TEARDOWN"
+	@echo "  teardown                    Delete all namespaces + CRDs (full reset)"
 	@echo ""

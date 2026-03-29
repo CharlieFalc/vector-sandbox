@@ -77,6 +77,24 @@ spec:
                   type: string
                 vectorConfigHash:
                   type: string
+                # lastKnownGoodHash tracks the config hash most recently
+                # promoted through the post-rollout validation window.
+                # The operator compares cfgHash against this to decide
+                # whether to enter the Validating phase.
+                lastKnownGoodHash:
+                  type: string
+                # badConfigHash is set when a config triggers a crash-loop.
+                # Reconcile refuses to re-apply this hash until the spec
+                # produces a different one.
+                badConfigHash:
+                  type: string
+                # validatingStartedAt is an RFC3339 timestamp written when
+                # the operator first enters the Validating phase for a given
+                # config hash. Used to enforce the rollout validation window
+                # even when spurious watch events re-trigger the reconciler
+                # before the window has elapsed.
+                validatingStartedAt:
+                  type: string
                 readyReplicas:
                   type: integer
                 message:

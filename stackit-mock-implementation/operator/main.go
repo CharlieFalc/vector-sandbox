@@ -161,10 +161,10 @@ func envOrDefault(key, def string) string {
 //   - ticker.C fires   → perform a health check, update the cache, and loop
 //   - ctx.Done() fires → operator is shutting down, stop the ticker and return
 func runVectorHealthMonitor(ctx context.Context, log logr.Logger, cache *api.VectorHealthCache) {
-	// Vector's built-in API server listens on port 8686 by default.
-	// In a real deployment this would be the ClusterIP Service DNS name;
-	// here we use localhost so the monitor works in a local dev run too.
-	const vectorHealthURL = "http://localhost:8686/health"
+	// Vector's built-in API server listens on port 8686.
+	// Use the cluster-internal Service DNS name so this works from inside the
+	// operator pod. "vector" is the Service name created by reconcileService.
+	const vectorHealthURL = "http://vector.telemetry-system.svc.cluster.local:8686/health"
 
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop() // always release the ticker when the goroutine exits

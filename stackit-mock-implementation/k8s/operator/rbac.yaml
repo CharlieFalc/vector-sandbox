@@ -31,6 +31,11 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # List/watch Pods — required by isVectorCrashLooping to detect crash-loop
+  # state on Vector pods after a config rollout.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
   # Events for operator status
   - apiGroups: [""]
     resources: ["events"]
