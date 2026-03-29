@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Metrics Pipeline — Pressure Relief Techniques</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    padding: 32px;
+    min-width: 1300px;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 6px;
+    letter-spacing: -0.3px;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 32px;
+  }
+
+  /* ── flow arrow ── */
+  .flow-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 16px;
+  }
+  .arrow-col {
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+  }
+  .arrow {
+    font-size: 22px;
+    color: #334155;
+  }
+
+  /* ── lane cards ── */
+  .lane {
+    flex: 1;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .lane-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .lane-subtitle {
+    font-size: 10.5px;
+    opacity: 0.6;
+    margin-bottom: 4px;
+    font-style: italic;
+  }
+
+  /* colour themes per lane */
+  .lane-source   { background: #1a1f2e; border: 1.5px solid #3b4fd8; }
+  .lane-source .lane-title { color: #818cf8; }
+  .lane-agent    { background: #1a2418; border: 1.5px solid #2d6a1f; }
+  .lane-agent .lane-title { color: #4ade80; }
+  .lane-gateway  { background: #1e1a10; border: 1.5px solid #7c5c08; }
+  .lane-gateway .lane-title { color: #fbbf24; }
+  .lane-queue    { background: #1e1318; border: 1.5px solid #7c1f42; }
+  .lane-queue .lane-title { color: #f472b6; }
+  .lane-ingestor { background: #101e24; border: 1.5px solid #0f4f6b; }
+  .lane-ingestor .lane-title { color: #38bdf8; }
+  .lane-storage  { background: #1a1024; border: 1.5px solid #5a1d9a; }
+  .lane-storage .lane-title { color: #a78bfa; }
+  .lane-query    { background: #1e1118; border: 1.5px solid #7c1f56; }
+  .lane-query .lane-title { color: #fb7185; }
+
+  /* technique badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .badge-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  .b-sampling    { background: #1e2d5c; color: #93c5fd; }
+  .b-sampling .badge-dot    { background: #93c5fd; }
+  .b-filtering   { background: #1a3320; color: #6ee7b7; }
+  .b-filtering .badge-dot   { background: #6ee7b7; }
+  .b-batching    { background: #2d2010; color: #fcd34d; }
+  .b-batching .badge-dot    { background: #fcd34d; }
+  .b-buffering   { background: #2d1030; color: #d8b4fe; }
+  .b-buffering .badge-dot   { background: #d8b4fe; }
+  .b-agg         { background: #102030; color: #67e8f9; }
+  .b-agg .badge-dot         { background: #67e8f9; }
+  .b-rate        { background: #301020; color: #fca5a5; }
+  .b-rate .badge-dot        { background: #fca5a5; }
+  .b-infra       { background: #202010; color: #d9f99d; }
+  .b-infra .badge-dot       { background: #d9f99d; }
+  .b-compress    { background: #1a2020; color: #5eead4; }
+  .b-compress .badge-dot    { background: #5eead4; }
+  .b-downsample  { background: #201030; color: #c4b5fd; }
+  .b-downsample .badge-dot  { background: #c4b5fd; }
+  .b-cache       { background: #102020; color: #34d399; }
+  .b-cache .badge-dot       { background: #34d399; }
+
+  .badges-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  /* detail text under a badge */
+  .detail {
+    font-size: 10.5px;
+    color: #64748b;
+    line-height: 1.5;
+    margin-top: 2px;
+  }
+  .detail b { color: #94a3b8; font-weight: 600; }
+
+  /* infra band */
+  .infra-band {
+    background: #141a10;
+    border: 1.5px dashed #3a5c14;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-top: 8px;
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .infra-band-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #84cc16;
+    margin-bottom: 8px;
+    white-space: nowrap;
+  }
+  .infra-item {
+    min-width: 160px;
+  }
+  .infra-item .detail { margin-top: 4px; }
+
+  /* legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #94a3b8;
+  }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+  hr.section { border: none; border-top: 1px solid #1e293b; margin: 20px 0; }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #475569;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* ── example tools row ── */
+  .tools-row {
+    display: flex;
+    gap: 0;
+    margin-bottom: 24px;
+    align-items: stretch;
+  }
+  .tool-cell {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 10.5px;
+    color: #64748b;
+    border-top: 1px solid #1e293b;
+    line-height: 1.6;
+  }
+  .tool-cell b { color: #94a3b8; display: block; margin-bottom: 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .arrow-spacer { width: 24px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<h1>Metrics Pipeline — Pressure Relief Techniques</h1>
+<p class="subtitle">Where every technique lives in a production observability stack</p>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#93c5fd"></div> Sampling</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6ee7b7"></div> Filtering</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fcd34d"></div> Batching</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#d8b4fe"></div> Buffering (mem/disk)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#67e8f9"></div> Aggregation / Roll-up</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fca5a5"></div> Rate Limiting / Back-pressure</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#d9f99d"></div> Infra Scaling (HPA/VPA)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#5eead4"></div> Compression</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#c4b5fd"></div> Downsampling</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div> Caching / Memoization</div>
+</div>
+
+<!-- EXAMPLE TOOLS ROW -->
+<div class="section-label">Example tools at each stage</div>
+<div class="tools-row">
+  <div class="tool-cell" style="border-left:3px solid #3b4fd8"><b>Source</b>App SDK, StatsD client, Prom client, OTEL SDK</div>
+  <div class="arrow-spacer"></div>
+  <div class="tool-cell" style="border-left:3px solid #2d6a1f"><b>Agent / Sidecar</b>OTel Collector, Telegraf, Fluent Bit, Prometheus agent, Datadog Agent</div>
+  <div class="arrow-spacer"></div>
+  <div class="tool-cell" style="border-left:3px solid #7c5c08"><b>Gateway / Proxy</b>OTel Collector (gateway mode), Thanos Receive, VictoriaMetrics vmagent</div>
+  <div class="arrow-spacer"></div>
+  <div class="tool-cell" style="border-left:3px solid #7c1f42"><b>Queue</b>Kafka, Kinesis, Pulsar, NATS JetStream</div>
+  <div class="arrow-spacer"></div>
+  <div class="tool-cell" style="border-left:3px solid #0f4f6b"><b>Ingestor / Writer</b>Cortex Ingester, Mimir Ingester, VictoriaMetrics, InfluxDB write path</div>
+  <div class="arrow-spacer"></div>
+  <div class="tool-cell" style="border-left:3px solid #5a1d9a"><b>Storage</b>Prometheus TSDB, Thanos, M3DB, ClickHouse, Parquet on S3</div>
+  <div class="arrow-spacer"></div>
+  <div class="tool-cell" style="border-left:3px solid #7c1f56"><b>Query Layer</b>Grafana, Thanos Query, Cortex Querier, PromQL, MetricsQL</div>
+</div>
+
+<!-- MAIN FLOW -->
+<div class="section-label">Pipeline stages &amp; techniques</div>
+
+<div class="flow-row">
+
+  <!-- SOURCE -->
+  <div class="lane lane-source">
+    <div class="lane-title">① Source</div>
+    <div class="lane-subtitle">App / Service / SDK</div>
+
+    <div class="badges-row">
+      <span class="badge b-sampling"><span class="badge-dot"></span>Head Sampling</span>
+    </div>
+    <div class="detail">Probabilistic: record only N% of traces/events at creation time. SDK-level flag. Fast, zero network cost, loses tail context.</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Client Filter</span>
+    </div>
+    <div class="detail">Drop low-cardinality noise, debug/health metrics, internal probes before emitting. SDK config.</div>
+
+    <div class="badges-row">
+      <span class="badge b-agg"><span class="badge-dot"></span>Pre-aggregation</span>
+    </div>
+    <div class="detail">Convert raw events → counters/histograms locally (e.g. Prom client). Never send raw rows.</div>
+
+    <div class="badges-row">
+      <span class="badge b-buffering"><span class="badge-dot"></span>In-Memory Buffer</span>
+    </div>
+    <div class="detail">SDK holds metrics in a ring-buffer; exports on interval (scrape / push). Absorbs burst spikes.</div>
+
+    <div class="badges-row">
+      <span class="badge b-rate"><span class="badge-dot"></span>SDK Rate Limit</span>
+    </div>
+    <div class="detail">Max events/sec or cardinality cap enforced in the SDK itself (e.g. OTEL View API).</div>
+  </div>
+
+  <div class="arrow-col"><div class="arrow">→</div></div>
+
+  <!-- AGENT / SIDECAR -->
+  <div class="lane lane-agent">
+    <div class="lane-title">② Agent / Sidecar</div>
+    <div class="lane-subtitle">Per-node or per-pod collector</div>
+
+    <div class="badges-row">
+      <span class="badge b-batching"><span class="badge-dot"></span>Batch Processor</span>
+    </div>
+    <div class="detail">Groups data points into fixed-size or time-window batches before forwarding. Reduces connection overhead dramatically.</div>
+
+    <div class="badges-row">
+      <span class="badge b-buffering"><span class="badge-dot"></span>Memory Queue</span>
+      <span class="badge b-buffering"><span class="badge-dot"></span>Disk WAL</span>
+    </div>
+    <div class="detail">OTel Collector's <b>persistent_queue</b> writes to disk WAL. Survives agent restarts; decouples producer from downstream.</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Metric Filter</span>
+      <span class="badge b-filtering"><span class="badge-dot"></span>Label Drop</span>
+    </div>
+    <div class="detail">Drop entire metric families, strip high-cardinality labels (user IDs, UUIDs) before forwarding.</div>
+
+    <div class="badges-row">
+      <span class="badge b-agg"><span class="badge-dot"></span>Rollup / Span Metrics</span>
+    </div>
+    <div class="detail">Reduce trace spans → RED metrics at agent level. One histogram instead of N span records.</div>
+
+    <div class="badges-row">
+      <span class="badge b-compress"><span class="badge-dot"></span>Compression</span>
+    </div>
+    <div class="detail">Snappy / gzip on remote-write payload. Cuts bandwidth 5–10×.</div>
+
+    <div class="badges-row">
+      <span class="badge b-rate"><span class="badge-dot"></span>Retry + Backoff</span>
+    </div>
+    <div class="detail">Exponential backoff + jitter when downstream is slow; respects 429/503 signals.</div>
+  </div>
+
+  <div class="arrow-col"><div class="arrow">→</div></div>
+
+  <!-- GATEWAY -->
+  <div class="lane lane-gateway">
+    <div class="lane-title">③ Gateway / Proxy</div>
+    <div class="lane-subtitle">Central collector / remote-write proxy</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Global Filter</span>
+      <span class="badge b-filtering"><span class="badge-dot"></span>Routing Rules</span>
+    </div>
+    <div class="detail">Route metrics to different backends by namespace/team; drop org-wide noise centrally.</div>
+
+    <div class="badges-row">
+      <span class="badge b-batching"><span class="badge-dot"></span>Fan-out Batching</span>
+    </div>
+    <div class="detail">Receive from N agents, re-batch for fewer, larger writes to ingestors.</div>
+
+    <div class="badges-row">
+      <span class="badge b-rate"><span class="badge-dot"></span>Rate Limiting</span>
+      <span class="badge b-rate"><span class="badge-dot"></span>Token Bucket</span>
+    </div>
+    <div class="detail">Enforce per-tenant or per-service write quotas. Shed load before it hits storage.</div>
+
+    <div class="badges-row">
+      <span class="badge b-sampling"><span class="badge-dot"></span>Tail Sampling</span>
+    </div>
+    <div class="detail">See full trace before deciding to keep it (errors, slow spans). Memory-expensive but accurate. Lives here or in agent.</div>
+
+    <div class="badges-row">
+      <span class="badge b-buffering"><span class="badge-dot"></span>In-flight Buffer</span>
+    </div>
+    <div class="detail">Short-lived memory buffer absorbs micro-bursts between agent fan-in and ingestor writes.</div>
+  </div>
+
+  <div class="arrow-col"><div class="arrow">→</div></div>
+
+  <!-- QUEUE -->
+  <div class="lane lane-queue">
+    <div class="lane-title">④ Message Queue</div>
+    <div class="lane-subtitle">Optional — high-volume / multi-consumer</div>
+
+    <div class="badges-row">
+      <span class="badge b-buffering"><span class="badge-dot"></span>Disk-backed Queue</span>
+    </div>
+    <div class="detail">Kafka topics absorb sustained bursts that outpace ingestor capacity. Replayable. Key pattern for >1M metrics/s.</div>
+
+    <div class="badges-row">
+      <span class="badge b-batching"><span class="badge-dot"></span>Consumer Batching</span>
+    </div>
+    <div class="detail">Consumers batch-read N messages per poll cycle, write to storage in bulk.</div>
+
+    <div class="badges-row">
+      <span class="badge b-rate"><span class="badge-dot"></span>Consumer Lag Alarm</span>
+    </div>
+    <div class="detail">Lag = back-pressure signal → trigger HPA on the consumer fleet.</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Stream Filtering</span>
+    </div>
+    <div class="detail">Kafka Streams / Flink job does stateful aggregation and drops before ingestor sees it.</div>
+  </div>
+
+  <div class="arrow-col"><div class="arrow">→</div></div>
+
+  <!-- INGESTOR -->
+  <div class="lane lane-ingestor">
+    <div class="lane-title">⑤ Ingestor / Writer</div>
+    <div class="lane-subtitle">Cortex / Mimir / VictoriaMetrics write path</div>
+
+    <div class="badges-row">
+      <span class="badge b-batching"><span class="badge-dot"></span>Write Batching</span>
+    </div>
+    <div class="detail">Accumulates samples in memory chunks; flushes to object store in large blocks. Amortises write cost.</div>
+
+    <div class="badges-row">
+      <span class="badge b-buffering"><span class="badge-dot"></span>WAL (Write-Ahead Log)</span>
+    </div>
+    <div class="detail">Durability guarantee without synchronous disk writes per sample. Ring-buffer on fast local SSD.</div>
+
+    <div class="badges-row">
+      <span class="badge b-rate"><span class="badge-dot"></span>Back-pressure / 429</span>
+    </div>
+    <div class="detail">Ingestor returns HTTP 429 or applies admission control when chunk head series limit is hit. Gateway retries with backoff.</div>
+
+    <div class="badges-row">
+      <span class="badge b-agg"><span class="badge-dot"></span>In-memory TSDB Chunk</span>
+    </div>
+    <div class="detail">Active series kept in RAM, compacted into immutable blocks. Limits random disk I/O.</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Series Limit / OOO Drop</span>
+    </div>
+    <div class="detail">Hard cap on active series per tenant. Out-of-order samples optionally dropped or ingested with OOO window.</div>
+  </div>
+
+  <div class="arrow-col"><div class="arrow">→</div></div>
+
+  <!-- STORAGE -->
+  <div class="lane lane-storage">
+    <div class="lane-title">⑥ Storage</div>
+    <div class="lane-subtitle">TSDB / Object Store / Columnar</div>
+
+    <div class="badges-row">
+      <span class="badge b-downsample"><span class="badge-dot"></span>Downsampling</span>
+    </div>
+    <div class="detail">Compact raw (15s) → 5m → 1h resolution automatically. Thanos / Cortex ruler runs this async. Query cost ↓ 100×.</div>
+
+    <div class="badges-row">
+      <span class="badge b-agg"><span class="badge-dot"></span>Compaction</span>
+    </div>
+    <div class="detail">Merge overlapping blocks, rewrite with better encoding (Gorilla / delta-of-delta). Reduces storage 5–10×.</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Retention Policy</span>
+    </div>
+    <div class="detail">Drop data older than N days at each resolution tier. Automatic TTL enforcement.</div>
+
+    <div class="badges-row">
+      <span class="badge b-compress"><span class="badge-dot"></span>Block Compression</span>
+    </div>
+    <div class="detail">Parquet/Gorilla time-series encoding + Snappy/ZSTD. Columnar layout enables predicate pushdown.</div>
+
+    <div class="badges-row">
+      <span class="badge b-buffering"><span class="badge-dot"></span>Object Store Buffer</span>
+    </div>
+    <div class="detail">Ingestors stage blocks locally before uploading to S3/GCS. Decouples ingest rate from upload bandwidth.</div>
+  </div>
+
+  <div class="arrow-col"><div class="arrow">→</div></div>
+
+  <!-- QUERY LAYER -->
+  <div class="lane lane-query">
+    <div class="lane-title">⑦ Query Layer</div>
+    <div class="lane-subtitle">Grafana / Querier / PromQL</div>
+
+    <div class="badges-row">
+      <span class="badge b-rate"><span class="badge-dot"></span>Query Throttling</span>
+    </div>
+    <div class="detail">Limit concurrent queries per tenant, reject or queue excess. Prevents query storms from killing ingestors.</div>
+
+    <div class="badges-row">
+      <span class="badge b-cache"><span class="badge-dot"></span>Results Cache</span>
+      <span class="badge b-cache"><span class="badge-dot"></span>Chunk Cache</span>
+    </div>
+    <div class="detail">Memcached/Redis caches aligned query results and raw chunks. Repeat dashboard loads hit cache, not storage.</div>
+
+    <div class="badges-row">
+      <span class="badge b-agg"><span class="badge-dot"></span>Query Sharding</span>
+    </div>
+    <div class="detail">Split time-range queries into parallel shards across querier pods. Horizontal fan-out, then merge.</div>
+
+    <div class="badges-row">
+      <span class="badge b-downsample"><span class="badge-dot"></span>Auto Resolution Select</span>
+    </div>
+    <div class="detail">Querier auto-picks 5m or 1h downsampled data for long time ranges. Transparent to user.</div>
+
+    <div class="badges-row">
+      <span class="badge b-filtering"><span class="badge-dot"></span>Max Series / Bytes Limit</span>
+    </div>
+    <div class="detail">Kill queries that would scan >N series or >X GB. Protects shared infrastructure from runaway queries.</div>
+  </div>
+
+</div>
+
+<!-- INFRA BAND -->
+<hr class="section">
+<div class="section-label">Cross-cutting — Infrastructure &amp; Platform</div>
+
+<div class="infra-band">
+
+  <div class="infra-item">
+    <div class="badges-row"><span class="badge b-infra"><span class="badge-dot"></span>HPA — Horizontal Pod Autoscaler</span></div>
+    <div class="detail">Scales <b>collector, ingestor, querier</b> pods based on CPU / custom metric (e.g. Kafka lag, active series). Prevents fixed-size fleet from being OOM-killed under burst.</div>
+  </div>
+
+  <div class="infra-item">
+    <div class="badges-row"><span class="badge b-infra"><span class="badge-dot"></span>VPA — Vertical Pod Autoscaler</span></div>
+    <div class="detail">Right-sizes memory requests on ingestors / agents. Avoids OOM kills from under-provisioned limits without over-allocating.</div>
+  </div>
+
+  <div class="infra-item">
+    <div class="badges-row"><span class="badge b-infra"><span class="badge-dot"></span>KEDA (Event-Driven Autoscaling)</span></div>
+    <div class="detail">Scales consumer pods directly off <b>Kafka lag</b> or Prometheus metric value. More precise than CPU-based HPA for async pipelines.</div>
+  </div>
+
+  <div class="infra-item">
+    <div class="badges-row"><span class="badge b-infra"><span class="badge-dot"></span>Pod Disruption Budgets</span></div>
+    <div class="detail">Prevent too many ingestor replicas being evicted simultaneously. Keeps WAL-backed state intact during node pressure.</div>
+  </div>
+
+  <div class="infra-item">
+    <div class="badges-row"><span class="badge b-rate"><span class="badge-dot"></span>Network Egress / QoS</span></div>
+    <div class="detail">tc-based bandwidth shaping on node level. Prevents a noisy-tenant Prometheus push from saturating the node's NIC and impacting other workloads.</div>
+  </div>
+
+  <div class="infra-item">
+    <div class="badges-row"><span class="badge b-compress"><span class="badge-dot"></span>Remote-Write Tuning</span></div>
+    <div class="detail"><b>max_shards, queue_capacity, batch_send_deadline</b> control Prometheus remote-write concurrency and back-pressure propagation back to the scrape loop.</div>
+  </div>
+
+</div>
+
+<div style="margin-top:20px; font-size:10.5px; color:#334155; text-align:right;">
+  Techniques: Sampling · Batching · Buffering (mem/disk) · Filtering · Aggregation · Rate Limiting · Compression · Downsampling · Caching · HPA · VPA · KEDA
+</div>
+
+
+<!-- STUDY-NAV-INJECTED -->
+<style>
+#snav-toggle {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 10000;
+  background: #1e293b;
+  border: 1.5px solid #334155;
+  color: #94a3b8;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  transition: background 0.15s, color 0.15s;
+}
+#snav-toggle:hover { background: #273347; color: #e2e8f0; }
+#snav-panel {
+  position: fixed;
+  top: 0; left: 0;
+  height: 100vh;
+  width: 300px;
+  background: #0f1623;
+  border-right: 1.5px solid #1e293b;
+  z-index: 9999;
+  transform: translateX(-100%);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+  padding-top: 64px;
+  overflow-y: auto;
+}
+#snav-panel.snav-open { transform: translateX(0); }
+#snav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 9998;
+}
+#snav-overlay.snav-open { display: block; }
+.snav-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #475569;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 8px;
+}
+.snav-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 18px;
+  text-decoration: none;
+  border-radius: 8px;
+  margin: 2px 8px;
+  transition: background 0.12s;
+  border: 1.5px solid transparent;
+}
+.snav-item:hover {
+  background: #1e293b;
+  border-color: #334155;
+}
+.snav-item.snav-active {
+  background: #172036;
+  border-color: #3b4fd8;
+}
+.snav-icon {
+  font-size: 18px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.snav-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.snav-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  line-height: 1.3;
+}
+.snav-item.snav-active .snav-item-title { color: #818cf8; }
+.snav-item-desc {
+  font-size: 10.5px;
+  color: #64748b;
+  line-height: 1.4;
+}
+</style>
+
+<button id="snav-toggle" onclick="document.getElementById('snav-panel').classList.toggle('snav-open');document.getElementById('snav-overlay').classList.toggle('snav-open')">&#9776;</button>
+<div id="snav-overlay" onclick="document.getElementById('snav-panel').classList.remove('snav-open');document.getElementById('snav-overlay').classList.remove('snav-open')"></div>
+<div id="snav-panel">
+  <div class="snav-header">Study Hub</div>
+  
+        <a class="snav-item" href="metrics-pressure-arch.html" id="snav-metrics-pressure-arch">
+          <span class="snav-icon">📊</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Metrics Pressure Map</span>
+            <span class="snav-item-desc">Where sampling, batching, buffering & HPA live in the pipeline</span>
+          </span>
+        </a>
+        <a class="snav-item" href="stackit-architecture-deep-dive.html" id="snav-stackit-architecture-deep-dive">
+          <span class="snav-icon">🏗️</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Architecture Deep Dive</span>
+            <span class="snav-item-desc">STACKIT telemetry architecture — interview reference</span>
+          </span>
+        </a>
+        <a class="snav-item" href="stackit-architecture-interactive/index.html" id="snav-stackit-architecture-interactive_index">
+          <span class="snav-icon">🔍</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Interactive Explorer</span>
+            <span class="snav-item-desc">Clickable architecture explorer with component details</span>
+          </span>
+        </a>
+        <a class="snav-item" href="interview-quiz.html" id="snav-interview-quiz">
+          <span class="snav-icon">🧠</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Technical Quiz</span>
+            <span class="snav-item-desc">STACKIT interview prep — technical Q&A</span>
+          </span>
+        </a>
+        <a class="snav-item" href="otlp-quiz.html" id="snav-otlp-quiz">
+          <span class="snav-icon">📡</span>
+          <span class="snav-text">
+            <span class="snav-item-title">OTLP / OTel Quiz</span>
+            <span class="snav-item-desc">OpenTelemetry deep-dive quiz</span>
+          </span>
+        </a>
+        <a class="snav-item" href="star-quiz.html" id="snav-star-quiz">
+          <span class="snav-icon">⭐</span>
+          <span class="snav-text">
+            <span class="snav-item-title">STAR Stories</span>
+            <span class="snav-item-desc">Behavioral interview STAR story matcher</span>
+          </span>
+        </a>
+</div>
+<script>
+(function(){
+  var w = window.location.pathname; var el;
+  
+  el = document.getElementById('snav-metrics-pressure-arch');
+  if(el && (w.endsWith('/metrics-pressure-arch.html') || w.endsWith('/metrics-pressure-arch.html/') || w.endsWith('/metrics-pressure-arch.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-stackit-architecture-deep-dive');
+  if(el && (w.endsWith('/stackit-architecture-deep-dive.html') || w.endsWith('/stackit-architecture-deep-dive.html/') || w.endsWith('/stackit-architecture-deep-dive.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-stackit-architecture-interactive_index');
+  if(el && (w.endsWith('/stackit-architecture-interactive/index.html') || w.endsWith('/stackit-architecture-interactive/') || w.endsWith('/stackit-architecture-interactive'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-interview-quiz');
+  if(el && (w.endsWith('/interview-quiz.html') || w.endsWith('/interview-quiz.html/') || w.endsWith('/interview-quiz.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-otlp-quiz');
+  if(el && (w.endsWith('/otlp-quiz.html') || w.endsWith('/otlp-quiz.html/') || w.endsWith('/otlp-quiz.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-star-quiz');
+  if(el && (w.endsWith('/star-quiz.html') || w.endsWith('/star-quiz.html/') || w.endsWith('/star-quiz.html'))) el.classList.add('snav-active');
+})();
+</script>
+
+</body>
+</html>

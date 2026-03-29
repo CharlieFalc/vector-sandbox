@@ -34,8 +34,17 @@ spec:
               value: "price-service"
             - name: OTEL_SERVICE_VERSION
               value: "1.0.0"
+            # Downward API — exposes pod identity to the container at runtime
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: OTEL_RESOURCE_ATTRIBUTES
-              value: "deployment.environment=local,k8s.namespace=customer-app,k8s.cluster=docker-desktop"
+              value: "deployment.environment=local,k8s.namespace=customer-app,k8s.cluster=docker-desktop,k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME)"
             - name: OTEL_PYTHON_LOG_CORRELATION
               value: "true"
             - name: OTEL_PYTHON_LOG_LEVEL

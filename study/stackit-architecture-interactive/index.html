@@ -1850,5 +1850,173 @@ function closePanel(){
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 </script>
+
+<!-- STUDY-NAV-INJECTED -->
+<style>
+#snav-toggle {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 10000;
+  background: #1e293b;
+  border: 1.5px solid #334155;
+  color: #94a3b8;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  transition: background 0.15s, color 0.15s;
+}
+#snav-toggle:hover { background: #273347; color: #e2e8f0; }
+#snav-panel {
+  position: fixed;
+  top: 0; left: 0;
+  height: 100vh;
+  width: 300px;
+  background: #0f1623;
+  border-right: 1.5px solid #1e293b;
+  z-index: 9999;
+  transform: translateX(-100%);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+  padding-top: 64px;
+  overflow-y: auto;
+}
+#snav-panel.snav-open { transform: translateX(0); }
+#snav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 9998;
+}
+#snav-overlay.snav-open { display: block; }
+.snav-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #475569;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 8px;
+}
+.snav-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 18px;
+  text-decoration: none;
+  border-radius: 8px;
+  margin: 2px 8px;
+  transition: background 0.12s;
+  border: 1.5px solid transparent;
+}
+.snav-item:hover {
+  background: #1e293b;
+  border-color: #334155;
+}
+.snav-item.snav-active {
+  background: #172036;
+  border-color: #3b4fd8;
+}
+.snav-icon {
+  font-size: 18px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.snav-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.snav-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  line-height: 1.3;
+}
+.snav-item.snav-active .snav-item-title { color: #818cf8; }
+.snav-item-desc {
+  font-size: 10.5px;
+  color: #64748b;
+  line-height: 1.4;
+}
+</style>
+
+<button id="snav-toggle" onclick="document.getElementById('snav-panel').classList.toggle('snav-open');document.getElementById('snav-overlay').classList.toggle('snav-open')">&#9776;</button>
+<div id="snav-overlay" onclick="document.getElementById('snav-panel').classList.remove('snav-open');document.getElementById('snav-overlay').classList.remove('snav-open')"></div>
+<div id="snav-panel">
+  <div class="snav-header">Study Hub</div>
+  
+        <a class="snav-item" href="../metrics-pressure-arch.html" id="snav-metrics-pressure-arch">
+          <span class="snav-icon">📊</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Metrics Pressure Map</span>
+            <span class="snav-item-desc">Where sampling, batching, buffering & HPA live in the pipeline</span>
+          </span>
+        </a>
+        <a class="snav-item" href="../stackit-architecture-deep-dive.html" id="snav-stackit-architecture-deep-dive">
+          <span class="snav-icon">🏗️</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Architecture Deep Dive</span>
+            <span class="snav-item-desc">STACKIT telemetry architecture — interview reference</span>
+          </span>
+        </a>
+        <a class="snav-item" href="../stackit-architecture-interactive/index.html" id="snav-stackit-architecture-interactive_index">
+          <span class="snav-icon">🔍</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Interactive Explorer</span>
+            <span class="snav-item-desc">Clickable architecture explorer with component details</span>
+          </span>
+        </a>
+        <a class="snav-item" href="../interview-quiz.html" id="snav-interview-quiz">
+          <span class="snav-icon">🧠</span>
+          <span class="snav-text">
+            <span class="snav-item-title">Technical Quiz</span>
+            <span class="snav-item-desc">STACKIT interview prep — technical Q&A</span>
+          </span>
+        </a>
+        <a class="snav-item" href="../otlp-quiz.html" id="snav-otlp-quiz">
+          <span class="snav-icon">📡</span>
+          <span class="snav-text">
+            <span class="snav-item-title">OTLP / OTel Quiz</span>
+            <span class="snav-item-desc">OpenTelemetry deep-dive quiz</span>
+          </span>
+        </a>
+        <a class="snav-item" href="../star-quiz.html" id="snav-star-quiz">
+          <span class="snav-icon">⭐</span>
+          <span class="snav-text">
+            <span class="snav-item-title">STAR Stories</span>
+            <span class="snav-item-desc">Behavioral interview STAR story matcher</span>
+          </span>
+        </a>
+</div>
+<script>
+(function(){
+  var w = window.location.pathname; var el;
+  
+  el = document.getElementById('snav-metrics-pressure-arch');
+  if(el && (w.endsWith('/metrics-pressure-arch.html') || w.endsWith('/metrics-pressure-arch.html/') || w.endsWith('/metrics-pressure-arch.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-stackit-architecture-deep-dive');
+  if(el && (w.endsWith('/stackit-architecture-deep-dive.html') || w.endsWith('/stackit-architecture-deep-dive.html/') || w.endsWith('/stackit-architecture-deep-dive.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-stackit-architecture-interactive_index');
+  if(el && (w.endsWith('/stackit-architecture-interactive/index.html') || w.endsWith('/stackit-architecture-interactive/') || w.endsWith('/stackit-architecture-interactive'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-interview-quiz');
+  if(el && (w.endsWith('/interview-quiz.html') || w.endsWith('/interview-quiz.html/') || w.endsWith('/interview-quiz.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-otlp-quiz');
+  if(el && (w.endsWith('/otlp-quiz.html') || w.endsWith('/otlp-quiz.html/') || w.endsWith('/otlp-quiz.html'))) el.classList.add('snav-active');
+  el = document.getElementById('snav-star-quiz');
+  if(el && (w.endsWith('/star-quiz.html') || w.endsWith('/star-quiz.html/') || w.endsWith('/star-quiz.html'))) el.classList.add('snav-active');
+})();
+</script>
+
 </body>
 </html>

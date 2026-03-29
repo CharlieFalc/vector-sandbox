@@ -45,10 +45,7 @@ data:
             spanEndTimeShift: "1m"
             filterByTraceID: false
             customQuery: true
-            tags:
-              - key: service.name
-                value: service_name
-            query: '{service_name="${__tags.service_name}"} | json | trace_id="${__span.traceId}"'
+            query: '{service_name="price-service"}'
           serviceMap:
             datasourceUid: prometheus
           nodeGraph:
@@ -201,7 +198,7 @@ data:
           "targets": [{
             "datasource": {"type": "tempo", "uid": "tempo"},
             "queryType": "traceql",
-            "query": "{resource.service.name=\"price-service\"}",
+            "query": "{resource.service.name=\"price-service\" && name != \"GET /health\"}",
             "limit": 20,
             "tableType": "traces",
             "refId": "A"
